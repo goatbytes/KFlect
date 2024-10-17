@@ -47,8 +47,8 @@ object BuildConfig {
    * Refer to the Semantic Versioning specification at https://semver.org/ for detailed guidelines.
    */
   object Version {
-    private const val MAJOR = 0
-    private const val MINOR = 1
+    private const val MAJOR = 1
+    private const val MINOR = 0
     private const val PATCH = 0
     private const val BUILD_NUMBER = 0
     private val IDENTIFIER = build.Version.Identifier.Beta
