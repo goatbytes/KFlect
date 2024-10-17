@@ -1,0 +1,53 @@
+/*
+ * All Margins and sizes are custom for the ktor-logo.png file.
+ * You may need to override it and find what works best for your case.
+ */
+/*:root {*/
+/*  !*noinspection CssUnknownTarget*!*/
+/*  --dokka-logo-image-url: url('../images/logo.svg');*/
+/*  --dokka-logo-height: 125px;*/
+/*  --dokka-logo-width: 50px;*/
+/*}*/
+
+@import url('https://fonts.googleapis.com/css2?family=Honk&family=Tourney:ital,wght@0,100..900;1,100..900&display=swap');
+
+
+:root {
+  /*noinspection CssUnknownTarget*/
+  --dokka-logo-image-url: url('../images/logo.svg');
+  --dokka-logo-height: 65px;
+  --dokka-logo-width: 65px;
+}
+
+.navigation {
+  /*background-color: rgba(96, 192, 255, 0.9);*/
+}
+
+/*.library-name--link::before {*/
+/*  background-position: left;*/
+/*}*/
+
+/*.library-name--link {*/
+/*  display: flex;*/
+/*  align-items: center;*/
+/*  color: #fff;*/
+/*  font-family: 'Honk', serif;*/
+/*  font-size: x-large;*/
+/*  font-weight: 700;*/
+/*  height: 50px;*/
+/*}*/
+
+/*.library-name--link::before {*/
+/*  content: '';*/
+/*  background: var(--dokka-logo-image-url) center no-repeat;*/
+/*  background-size: var(--dokka-logo-height) var(--dokka-logo-width);*/
+/*  margin-right: 5px;*/
+/*  width: var(--dokka-logo-height);*/
+/*  height: var(--dokka-logo-width);*/
+/*}*/
+
+/*@media (max-width: 759px) {*/
+/*  .library-name--link::before {*/
+/*    display: none;*/
+/*  }*/
+/*}*/
