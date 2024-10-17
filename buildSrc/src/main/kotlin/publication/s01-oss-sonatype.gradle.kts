@@ -97,7 +97,7 @@ afterEvaluate {
     }
   }
   signing {
-    SigningConfig.Release[project]?.credentials?.run {
+    signingConfig.credentials.run {
       useInMemoryPgpKeys(keyId, keyRing, password)
       sign(publishing.publications)
     }
