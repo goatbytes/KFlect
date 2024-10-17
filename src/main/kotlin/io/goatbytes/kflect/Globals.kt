@@ -62,6 +62,21 @@ typealias KParameterTypes = Array<out KClass<*>>
 /** Alias for an array of any nullable. */
 typealias NullableArgs = Array<out Any?>
 
+/**
+ * A typealias for `String` used to represent cache keys for storing Java reflection members
+ * (e.g., methods, constructors, fields). These keys are generated to uniquely identify members
+ * using their class, name, and parameter types.
+ *
+ * Cache keys are used for efficient lookups of reflection-based members to avoid repeated
+ * reflection operations, which can be expensive.
+ *
+ * Example usage:
+ * ```
+ * val cacheKey: CacheKey = CacheKey<Method>(MyClass::class.java, "myMethod", String::class.java)
+ * ```
+ */
+typealias CacheKey = String
+
 // -------------------------------------------------------------------------------------------------
 
 /** Constant for identifying the constructor method `<init>`. */

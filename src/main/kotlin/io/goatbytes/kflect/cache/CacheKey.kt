@@ -19,6 +19,7 @@
 
 package io.goatbytes.kflect.cache
 
+import io.goatbytes.kflect.CacheKey
 import io.goatbytes.kflect.JavaClass
 import io.goatbytes.kflect.ext.name
 import io.goatbytes.kflect.ext.signature
@@ -28,21 +29,6 @@ import java.lang.reflect.Member
 import kotlin.reflect.KCallable
 import kotlin.reflect.KClass
 import kotlin.reflect.KFunction
-
-/**
- * A typealias for `String` used to represent cache keys for storing Java reflection members
- * (e.g., methods, constructors, fields). These keys are generated to uniquely identify members
- * using their class, name, and parameter types.
- *
- * Cache keys are used for efficient lookups of reflection-based members to avoid repeated
- * reflection operations, which can be expensive.
- *
- * Example usage:
- * ```
- * val cacheKey: CacheKey = CacheKey<Method>(MyClass::class.java, "myMethod", String::class.java)
- * ```
- */
-typealias CacheKey = String
 
 /**
  * Generates a cache key for storing Java reflection members (methods, constructors, fields)
@@ -66,7 +52,7 @@ typealias CacheKey = String
 inline fun <reified T> CacheKey(
   klass: JavaClass,
   name: String,
-  types: Array<out JavaClass>
+  types: Array<out JavaClass> = emptyArray(),
 ): CacheKey where T : AccessibleObject, T : Member =
   "${klass.name}.$name${if (T::class != Field::class) types.signature() else ""}"
 
@@ -92,7 +78,7 @@ inline fun <reified T> CacheKey(
 inline fun <reified T : KCallable<*>> CacheKey(
   kClass: KClass<*>,
   name: String,
-  types: Array<out KClass<*>>
+  types: Array<out KClass<*>> = emptyArray()
 ) = when (T::class) {
   KFunction::class -> "fun ${kClass.name} $name${types.signature()}"
   else -> "${kClass.name}.$name"

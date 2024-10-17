@@ -17,6 +17,7 @@
 
 package io.goatbytes.kflect.cache
 
+import io.goatbytes.kflect.CacheKey
 import io.goatbytes.kflect.DEBUG
 import io.goatbytes.kflect.Reflective
 import java.util.concurrent.ConcurrentHashMap

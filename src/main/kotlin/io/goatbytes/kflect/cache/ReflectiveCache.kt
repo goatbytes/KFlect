@@ -17,6 +17,7 @@
 
 package io.goatbytes.kflect.cache
 
+import io.goatbytes.kflect.CacheKey
 import java.lang.reflect.Member
 import java.util.concurrent.ConcurrentMap
 import kotlin.reflect.KCallable

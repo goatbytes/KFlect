@@ -61,7 +61,7 @@ class CacheKeyTest {
 
   @Test
   fun `test cache key for Kotlin member function`() {
-    val kotlinFunctionKey = CacheKey<KFunction<*>>(kotlinClass, KOTLIN_FUNCTION_NAME, String::class)
+    val kotlinFunctionKey = CacheKey<KFunction<*>>(kotlinClass, KOTLIN_FUNCTION_NAME, arrayOf(String::class))
     val expectedKey = "fun ${kotlinClass.name} $KOTLIN_FUNCTION_NAME(kotlin.String)"
     assertEquals(
       expectedKey,
