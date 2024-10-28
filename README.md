@@ -1,6 +1,8 @@
 <div align="center">
-  <h1>KFlect <sup><em><small>1.0.0-beta</small></em></sup></h1>
-  <p><strong><b>Kotlin Reflection Library</b></strong></p>
+<img src=".art/kflect.webp" alt="KFlect" />
+</div>
+
+<div align="center">
   <a href="https://styles.goatbytes.io/lang/kotlin" rel="nofollow">
     <img src="https://img.shields.io/badge/Style%20Guide-Kotlin-7F52FF.svg?style=flat&labelColor=black&color=7F52FF&logo=kotlin" alt="Style Guide-Kotlin">
   </a>
@@ -11,11 +13,6 @@
   <img src="https://img.shields.io/badge/Platform-Android%20|%20JVM-dark" alt="Android | JVM" />
 </div>
 
----
-
-<div align="center">
-<img src=".art/kflect.webp" alt="KFlect" />
-</div>
 
 KFlect is a Kotlin library that provides dynamic access to class members. It enables you to inspect and manipulate classes at runtime, including private members, companion objects, and extension functions. This can be useful for testing, debugging, and advanced programming techniques.
 
@@ -27,7 +24,7 @@ Add the following to your `build.gradle.kts` in your project:
 
 ```kotlin
 dependencies {
-  implementation("io.goatbytes:kflect:0.1.0-beta")
+  implementation("io.goatbytes:kflect:1.0.2")
 }
 ```
 
