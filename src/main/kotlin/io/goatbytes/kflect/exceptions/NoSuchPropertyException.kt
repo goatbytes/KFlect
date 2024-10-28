@@ -18,7 +18,6 @@
 package io.goatbytes.kflect.exceptions
 
 import io.goatbytes.kflect.KotlinClass
-import io.goatbytes.kflect.ext.name
 
 /**
  * Exception thrown when a specified property is not found in the class hierarchy of the given
@@ -30,18 +29,4 @@ import io.goatbytes.kflect.ext.name
  * @param cause The underlying cause of the exception, which can be `null`.
  */
 class NoSuchPropertyException(message: String? = null, cause: Exception? = null) :
-  ReflectiveOperationException(message, cause) {
-
-  /**
-   * Constructs a [NoSuchPropertyException] with the name of the missing property and the
-   * [KotlinClass] in which the property was not found.
-   *
-   * @param kClass The class where the property was expected to be found.
-   * @param name The name of the property that was not found.
-   * @param exception The underlying cause of the exception, which can be `null`.
-   */
-  internal constructor(kClass: KotlinClass, name: String, exception: Exception? = null) : this(
-    message = "$name not found in ${kClass.name}",
-    cause = exception
-  )
-}
+  ReflectiveOperationException(message, cause)

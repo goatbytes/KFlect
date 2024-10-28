@@ -17,12 +17,6 @@
 
 package io.goatbytes.kflect.exceptions
 
-import io.goatbytes.kflect.KParameterTypes
-import io.goatbytes.kflect.KotlinClass
-import io.goatbytes.kflect.ext.name
-import io.goatbytes.kflect.ext.signature
-import kotlin.reflect.KClass
-
 /**
  * An exception that is thrown when a specified function cannot be found in the target class.
  *
@@ -36,31 +30,4 @@ import kotlin.reflect.KClass
  * @param exception An optional underlying cause of the exception.
  */
 class NoSuchFunctionException(message: String? = null, exception: Exception? = null) :
-  ReflectiveOperationException(message, exception) {
-
-  /**
-   * Secondary constructor that builds the exception message based on the class, function name, and
-   * parameter types.
-   *
-   * @param kClass        The [KClass] in which the function was expected.
-   * @param name          The name of the function that was not found.
-   * @param extensionType The extension function type or null if not an extension function.
-   * @param parameters    The parameter types of the function that was not found.
-   * @param exception     An optional underlying cause of the exception.
-   */
-  internal constructor(
-    kClass: KClass<*>,
-    name: String,
-    extensionType: KotlinClass? = null,
-    parameters: Array<out KotlinClass> = emptyArray(),
-    exception: Exception? = null
-  ) : this(
-    "'${functionName(name, extensionType, parameters)}' does not exist in '${kClass.name}'",
-    exception
-  )
-
-  private companion object {
-    private fun functionName(name: String, extType: KotlinClass?, paramTypes: KParameterTypes) =
-      "fun ${if (extType != null) "${extType.name}." else ""}$name${paramTypes.signature()}"
-  }
-}
+  ReflectiveOperationException(message, exception)
