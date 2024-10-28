@@ -22,6 +22,8 @@ import java.lang.reflect.Parameter
 import java.lang.reflect.Type
 import java.lang.reflect.TypeVariable
 import kotlin.reflect.KClass
+import kotlin.reflect.KClassifier
+import kotlin.reflect.KFunction
 
 /**
  * A constant used to enable or disable debug mode throughout the project.
@@ -41,6 +43,9 @@ typealias JavaClass = Class<*>
 /** Alias for KClass<*>. */
 typealias KotlinClass = KClass<*>
 
+/** Alias for a string that represents a callable or member name. */
+typealias MemberName = String
+
 /** Alias for an array of Java reflection parameters. */
 typealias Parameters = Array<out Parameter>
 
@@ -57,10 +62,13 @@ typealias GenericParameterTypes = Array<out Type>
 typealias TypeParameters = Array<TypeVariable<*>>
 
 /** Alias for an array of Kotlin reflection parameter types. */
-typealias KParameterTypes = Array<out KClass<*>>
+typealias KParameterTypes = Array<out KClassifier>
 
 /** Alias for an array of any nullable. */
 typealias NullableArgs = Array<out Any?>
+
+/** Alias for a Kotlin constructor. */
+typealias KConstructor = KFunction<*>
 
 /**
  * A typealias for `String` used to represent cache keys for storing Java reflection members
