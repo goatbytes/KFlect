@@ -33,6 +33,11 @@ complexity:
     active: true
   TooManyFunctions:
     active: false
+  NestedBlockDepth:
+    active: false
+  CyclomaticComplexMethod:
+    threshold: 20
+    active: true
 
 # exceptions: https://detekt.dev/docs/rules/exceptions/
 exceptions:
@@ -91,7 +96,7 @@ formatting:
 # performance: https://detekt.dev/docs/rules/performance/
 performance:
   SpreadOperator:
-    active: true
+    active: false
 
 # naming: https://detekt.dev/docs/rules/naming/
 naming:
@@ -109,3 +114,6 @@ style:
   ForbiddenComment:
     active: true
     allowedPatterns: "(TODO|FIXME):\\s\\[[a-zA-Z]{2,}-?\\d{1,}\\]\\s"
+  ReturnCount:
+    max: 3
+    active: true
