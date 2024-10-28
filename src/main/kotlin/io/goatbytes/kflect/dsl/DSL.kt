@@ -22,7 +22,6 @@ import io.goatbytes.kflect.EMPTY
 import io.goatbytes.kflect.Invokable
 import io.goatbytes.kflect.JavaClass
 import io.goatbytes.kflect.KFlect
-import io.goatbytes.kflect.KParameterTypes
 import io.goatbytes.kflect.KotlinClass
 import io.goatbytes.kflect.Reflective
 import io.goatbytes.kflect._INIT_
@@ -30,17 +29,22 @@ import io.goatbytes.kflect.cache.CacheKey
 import io.goatbytes.kflect.cache.ReflectiveCache
 import io.goatbytes.kflect.exceptions.NoSuchFunctionException
 import io.goatbytes.kflect.exceptions.NoSuchPropertyException
+import io.goatbytes.kflect.ext.constructorOrNull
+import io.goatbytes.kflect.ext.extensionClassEquals
+import io.goatbytes.kflect.ext.findFunction
 import io.goatbytes.kflect.ext.function
+import io.goatbytes.kflect.ext.isExtension
 import io.goatbytes.kflect.ext.isKotlinCompiledClass
-import io.goatbytes.kflect.ext.javaParameterTypes
 import io.goatbytes.kflect.ext.kClass
-import io.goatbytes.kflect.ext.kotlinParameterTypes
 import io.goatbytes.kflect.ext.name
 import io.goatbytes.kflect.ext.property
 import io.goatbytes.kflect.ext.propertyOrNull
 import io.goatbytes.kflect.ext.signature
+import io.goatbytes.kflect.ext.toJavaParameterTypes
+import io.goatbytes.kflect.ext.toKParameterTypes
 import io.goatbytes.kflect.ext.traverseFirstNonNullOf
 import io.goatbytes.kflect.ext.traverseFirstNonNullOrNullOf
+import io.goatbytes.kflect.ext.valueParametersEqual
 import io.goatbytes.kflect.predicates.ConstructorPredicates
 import io.goatbytes.kflect.predicates.FieldPredicates
 import io.goatbytes.kflect.predicates.KFunctionPredicates
@@ -248,7 +252,7 @@ inline fun <reified T : Executable> executable(
   vararg args: Any?
 ): T {
   if (jClass in restrictedReflectionClasses) error("Reflection on ${jClass.name} is not supported")
-  val types = args.javaParameterTypes
+  val types = args.toJavaParameterTypes()
   return ReflectiveCache.java.getOrPut(CacheKey<T>(jClass, name, types)) {
     jClass.traverseFirstNonNullOf {
       try {
@@ -322,23 +326,43 @@ inline fun <reified T : Executable> executableOrNull(
  * @throws NoSuchPropertyException If no matching executable is found.
  * @throws NoSuchFunctionException If no matching executable is found.
  */
-@Suppress("SpreadOperator")
+@Throws(
+  NoSuchFunctionException::class,
+  NoSuchPropertyException::class,
+  IllegalStateException::class
+)
 inline fun <reified T : KCallable<*>> callable(
   kClass: KotlinClass,
   name: String,
   vararg args: Any?
 ): T {
-  val types: KParameterTypes = when {
-    args.all { arg -> arg is KotlinClass } -> args.filterIsInstance<KotlinClass>().toTypedArray()
-    else -> args.kotlinParameterTypes
-  }
-  return ReflectiveCache.kotlin.getOrPut(CacheKey<T>(kClass, name, types)) {
+  val parameterTypes = args.toKParameterTypes()
+  return ReflectiveCache.kotlin.getOrPut(CacheKey<T>(kClass, name, parameterTypes)) {
     when (T::class) {
       KProperty::class -> kClass.property(name)
-      KFunction::class -> kClass.function(name, *types)
-      KCallable::class -> when {
-        args.isNotEmpty() -> kClass.function(name, *types)
-        else -> kClass.propertyOrNull(name) ?: kClass.function(name, *types)
+      KFunction::class, KCallable::class -> {
+        if (T::class == KCallable::class && args.isEmpty()) {
+          (kClass.propertyOrNull(name) as? T)?.let { property -> return property }
+        }
+        try {
+          kClass.function(name, *parameterTypes)
+        } catch (e: NoSuchFunctionException) {
+          if (args.isNotEmpty()) {
+            // The arguments may contain the declaring class and the extension receiver.
+            val result = kClass.findFunction {
+              name(name) and declaringClass(parameterTypes[0]) and predicate { function ->
+                when (parameterTypes.size >= 2 && function.isExtension) {
+                  true -> function.extensionClassEquals(parameterTypes[1]) &&
+                    function.valueParametersEqual(parameterTypes.drop(2))
+
+                  else -> function.valueParametersEqual(parameterTypes.drop(1))
+                }
+              }
+            } ?: kClass.constructorOrNull(*parameterTypes)
+            (result as? T)?.let { return it }
+          }
+          throw e
+        }
       }
 
       else -> error("Unsupported type: ${T::class.java.name}")
@@ -372,48 +396,52 @@ inline fun <reified T : KCallable<*>> callableOrNull(
  * (either a Java method or a Kotlin function) based on the provided name and argument types.
  * If no arguments are provided, it searches for the field, property, method or function.
  *
- * @param receiver The [Reflective] object that contains the member to invoke.
+ * @param receiver The [Invokable] object that contains the member to invoke.
  * @param name The name of the member (function, method, or field) to invoke.
  * @param args The arguments to pass to the function or method.
  * @return An [Invokable] wrapper for the member (Java or Kotlin).
- * @throws ReflectiveOperationException if the specified member cannot be found.
+ * @throws NoSuchFunctionException if the specified function cannot be found.
+ * @throws NoSuchPropertyException if the specified property cannot be found.
  */
 @Suppress("CyclomaticComplexMethod")
-@Throws(ReflectiveOperationException::class)
-fun invokable(receiver: Reflective, name: String, vararg args: Any?): Invokable<*> {
+@Throws(NoSuchFunctionException::class, NoSuchPropertyException::class)
+fun invokable(receiver: Reflective, name: String, vararg args: Any?): Invokable {
   val kClass = receiver.kClass
   val isKotlinCompiled = kClass.isKotlinCompiledClass()
 
   return when {
-    args.isNotEmpty() -> {
-      if (isKotlinCompiled) {
-        callableOrNull<KFunction<*>>(kClass, name, *args)
-          ?: executableOrNull<Executable>(kClass.java, name, *args)
-      } else {
-        executableOrNull<Executable>(kClass.java, name, *args)
-          ?: callableOrNull<KFunction<*>>(kClass, name, *args)
-      } ?: throw ReflectiveOperationException(
-        "$name with arguments ${args.kotlinParameterTypes.signature()} not found in ${kClass.name}"
+    name == _INIT_ -> callableOrNull<KFunction<*>>(kClass, name, *args)
+      ?: executableOrNull<Constructor<*>>(kClass.java, name, *args)
+      ?: NoSuchFunctionException(
+        "Constructor with parameters '${args.toJavaParameterTypes().signature()}' " +
+          "not found in '${kClass.name}'"
       )
-    }
 
-    else -> {
-      if (isKotlinCompiled) {
-        callableOrNull<KProperty<*>>(kClass, name)
-          ?: callableOrNull<KFunction<*>>(kClass, name)
-          ?: accessibleOrNull<Field>(kClass.java, name)
-          ?: executableOrNull<Executable>(kClass.java, name)
-      } else {
-        accessibleOrNull<Field>(kClass.java, name)
-          ?: executableOrNull<Executable>(kClass.java, name)
-          ?: callableOrNull<KProperty<*>>(kClass, name)
-          ?: callableOrNull<KFunction<*>>(kClass, name)
-      } ?: throw ReflectiveOperationException("$name not found in ${kClass.name}")
-    }
+    args.isNotEmpty() -> if (isKotlinCompiled) {
+      callableOrNull<KFunction<*>>(kClass, name, *args)
+        ?: executableOrNull<Executable>(kClass.java, name, *args)
+    } else {
+      executableOrNull<Executable>(kClass.java, name, *args)
+        ?: callableOrNull<KFunction<*>>(kClass, name, *args)
+    } ?: throw NoSuchFunctionException(
+      "$name with arguments ${args.toKParameterTypes().signature()} not found in ${kClass.name}"
+    )
+
+    else -> if (isKotlinCompiled) {
+      callableOrNull<KProperty<*>>(kClass, name)
+        ?: callableOrNull<KFunction<*>>(kClass, name)
+        ?: accessibleOrNull<Field>(kClass.java, name)
+        ?: executableOrNull<Executable>(kClass.java, name)
+    } else {
+      accessibleOrNull<Field>(kClass.java, name)
+        ?: executableOrNull<Executable>(kClass.java, name)
+        ?: callableOrNull<KProperty<*>>(kClass, name)
+        ?: callableOrNull<KFunction<*>>(kClass, name)
+    } ?: throw NoSuchPropertyException("$name not found in ${kClass.name}")
   }.run {
     when (this) {
-      is Member -> Invokable java this
-      is KCallable<*> -> Invokable kotlin this
+      is Member -> Invokable.create(this)
+      is KCallable<*> -> Invokable.create(this)
       else -> error("Unexpected type: ${this::class.name}")
     }
   }
@@ -431,7 +459,7 @@ fun invokable(receiver: Reflective, name: String, vararg args: Any?): Invokable<
  * @param args The arguments to pass to the function or method.
  * @return An [Invokable] wrapper for the member (Java or Kotlin), or null if not found.
  */
-fun invokableOrNull(receiver: Reflective, name: String, vararg args: Any?): Invokable<*>? =
+fun invokableOrNull(receiver: Reflective, name: String, vararg args: Any?): Invokable? =
   tryOrNull { invokable(receiver, name, *args) }
 
 // -------------------------------------------------------------------------------------------------
