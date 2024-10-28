@@ -13,6 +13,7 @@
   <img src="https://img.shields.io/badge/Platform-Android%20|%20JVM-dark" alt="Android | JVM" />
 </div>
 
+---
 
 KFlect is a Kotlin library that provides dynamic access to class members. It enables you to inspect and manipulate classes at runtime, including private members, companion objects, and extension functions. This can be useful for testing, debugging, and advanced programming techniques.
 
