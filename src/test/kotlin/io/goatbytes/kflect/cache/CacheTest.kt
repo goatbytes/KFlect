@@ -111,7 +111,7 @@ class CacheTest {
   @Test
   fun `test TTL eviction`() {
     // Set short TTL and cache an item
-    cache.setTTL(100) // 100 ms TTL
+    val cache = Cache<Any>(100)
 
     val method = testClass.method(STATIC_METHOD_NAME)
     cache[TEST_KEY] = method
@@ -131,7 +131,7 @@ class CacheTest {
   @Test
   fun `test cache size limit and eviction`() {
     // Set max size of 1 to trigger eviction on second insert
-    cache.setMaxSize(1)
+    val cache = Cache<Any>(maxSize = 1)
 
     val method1 = testClass.method(STATIC_METHOD_NAME)
     val method2 = testClass.method(INSTANCE_METHOD_NAME)

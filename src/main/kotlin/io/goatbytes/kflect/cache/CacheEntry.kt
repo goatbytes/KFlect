@@ -21,7 +21,8 @@ package io.goatbytes.kflect.cache
  * Data class `CacheEntry` represents an entry in a cache.
  *
  * @property value      The value to cache
- * @property timestamp  The timestamp in milliseconds when the entry was added to the cache.
+ * @property timestamp  The timestamp in milliseconds when the entry was added to or retrieved from
+ *                      the cache.
  *                      Defaults to the current system time.
  */
-data class CacheEntry(val value: Any, val timestamp: Long = System.currentTimeMillis())
+data class CacheEntry(val value: Any, var timestamp: Long = System.currentTimeMillis())

@@ -28,27 +28,25 @@ import java.util.concurrent.TimeUnit
 
 /**
  * A thread-safe cache for storing and retrieving reflection members based on their [CacheKey].
+ *
+ * @param T       The cached value type.
+ * @param ttl     The time-to-live (TTL) for cache entries. Entries older than the TTL will be
+ *                evicted during cleanup.
+ * @param maxSize The maximum size of the cache. Once the cache reaches this size, the oldest
+ *                entry will be evicted.
  */
-open class Cache<T : Reflective> : ConcurrentMap<CacheKey, T> {
-
-  /**
-   * Companion object containing the default values for the cache.
-   */
-  companion object {
-    /** The default TTL for the cache. */
-    const val DEFAULT_TTL = 5 * 60 * 1000L
-
-    /** The default maximum size of the cache. */
-    const val DEFAULT_MAX_SIZE = 1000
-  }
+open class Cache<T : Reflective>(
+  private val ttl: Long = DEFAULT_TTL,
+  private val maxSize: Int = DEFAULT_MAX_SIZE
+) : ConcurrentMap<CacheKey, T> {
 
   // Internal cache storage
   private val _cache = ConcurrentHashMap<CacheKey, CacheEntry>()
 
-  private val executor: ScheduledExecutorService = Executors.newScheduledThreadPool(1)
-
-  private var ttl = DEFAULT_TTL
-  private var maxSize = DEFAULT_MAX_SIZE
+  private val executor: ScheduledExecutorService =
+    Executors.newScheduledThreadPool(1) { runnable ->
+      Thread(runnable).apply { isDaemon = true }
+    }
 
   init {
     // Schedule cache cleanup every minute
@@ -129,7 +127,9 @@ open class Cache<T : Reflective> : ConcurrentMap<CacheKey, T> {
    * @param key The key whose associated value is to be returned.
    * @return The value associated with the key, or `null` if there is no mapping for the key.
    */
-  override fun get(key: CacheKey): T? = _cache[key]?.get()
+  override fun get(key: CacheKey): T? = _cache[key]?.also { entry ->
+    entry.timestamp = System.currentTimeMillis()
+  }?.get()
 
   /**
    * Returns `true` if the cache contains one or more mappings to the specified value.
@@ -187,24 +187,6 @@ open class Cache<T : Reflective> : ConcurrentMap<CacheKey, T> {
   }
 
   /**
-   * Sets the time-to-live (TTL) for cache entries. Entries older than the TTL will be evicted
-   * during cleanup.
-   *
-   * @param ttl The time-to-live in milliseconds.
-   * @return The [Cache] object itself for chaining.
-   */
-  fun setTTL(ttl: Long) = apply { this.ttl = ttl }
-
-  /**
-   * Sets the maximum size of the cache. Once the cache reaches this size, the oldest entry will
-   * be evicted.
-   *
-   * @param maxSize The maximum number of entries the cache can hold.
-   * @return The [Cache] object itself for chaining.
-   */
-  fun setMaxSize(maxSize: Int) = apply { this.maxSize = maxSize }
-
-  /**
    * Cleans up the cache by removing entries that have exceeded their time-to-live (TTL).
    */
   internal fun cleanup() {
@@ -233,4 +215,15 @@ open class Cache<T : Reflective> : ConcurrentMap<CacheKey, T> {
 
   @Suppress("UNCHECKED_CAST")
   private fun CacheEntry.get(): T = requireNotNull(value as? T) { "Invalid cached value type" }
+
+  /**
+   * Companion object containing the default values for the cache.
+   */
+  companion object {
+    /** The default TTL for the cache. */
+    const val DEFAULT_TTL = 5 * 60 * 1000L
+
+    /** The default maximum size of the cache. */
+    const val DEFAULT_MAX_SIZE = 1000
+  }
 }

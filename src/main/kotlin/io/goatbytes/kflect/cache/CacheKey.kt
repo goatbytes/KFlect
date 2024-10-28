@@ -28,6 +28,7 @@ import java.lang.reflect.Field
 import java.lang.reflect.Member
 import kotlin.reflect.KCallable
 import kotlin.reflect.KClass
+import kotlin.reflect.KClassifier
 import kotlin.reflect.KFunction
 
 /**
@@ -78,7 +79,7 @@ inline fun <reified T> CacheKey(
 inline fun <reified T : KCallable<*>> CacheKey(
   kClass: KClass<*>,
   name: String,
-  types: Array<out KClass<*>> = emptyArray()
+  types: Array<out KClassifier> = emptyArray()
 ) = when (T::class) {
   KFunction::class -> "fun ${kClass.name} $name${types.signature()}"
   else -> "${kClass.name}.$name"
