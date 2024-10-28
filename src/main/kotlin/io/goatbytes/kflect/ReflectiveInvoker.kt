@@ -96,7 +96,11 @@ internal class ReflectiveInvoker(private val reflective: Reflective) {
     return when (invokable) {
       is Invokable.JavaConstructor -> invokable.invoke(*args)
       is Invokable.JavaField -> invokable(reflective)
-      is Invokable.JavaMethod -> invokable(reflective, *args)
+      is Invokable.JavaMethod -> if (invokable.isStatic) {
+        invokable(*args)
+      } else {
+        invokable(reflective, *args)
+      }
       is Invokable.KotlinProperty -> invokable(reflective)
       is Invokable.KotlinFunction -> when (invokable.name) {
         _INIT_ -> invokable(*args)

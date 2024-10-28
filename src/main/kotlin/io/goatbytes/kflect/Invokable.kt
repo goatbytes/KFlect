@@ -55,6 +55,8 @@ sealed interface Invokable {
 
     override val name: String get() = this.method.name
 
+    internal val isStatic: Boolean get() = this.method.isStatic
+
     override fun invoke(vararg args: Any?): Result<Any?> = runCatching {
       if (method.isStatic) {
         method.invoke(null, *args)
