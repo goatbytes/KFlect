@@ -19,7 +19,6 @@ package io.goatbytes.kflect.cache
 
 import io.goatbytes.kflect.CacheKey
 import java.lang.reflect.Member
-import java.util.concurrent.ConcurrentMap
 import kotlin.reflect.KCallable
 
 /**
@@ -31,8 +30,8 @@ import kotlin.reflect.KCallable
  */
 object ReflectiveCache {
   /** Thread-safe cache for Java reflection members (e.g. methods, fields, constructors) */
-  val java: ConcurrentMap<CacheKey, Member> by lazy { Cache() }
+  val java: Cache<Member> by lazy { Cache() }
 
   /** Thread-safe cache for Kotlin reflection callables (e.g. functions and properties) */
-  val kotlin: ConcurrentMap<CacheKey, KCallable<*>> by lazy { Cache() }
+  val kotlin: Cache<KCallable<*>> by lazy { Cache() }
 }
