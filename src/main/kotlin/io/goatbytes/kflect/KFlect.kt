@@ -17,11 +17,11 @@
 
 package io.goatbytes.kflect
 
+import ReflectiveInvoker
 import io.goatbytes.kflect.dsl.accessible
 import io.goatbytes.kflect.dsl.accessibleOrNull
 import io.goatbytes.kflect.dsl.callable
 import io.goatbytes.kflect.dsl.callableOrNull
-import io.goatbytes.kflect.dsl.executable
 import io.goatbytes.kflect.dsl.invokable
 import io.goatbytes.kflect.dsl.invokableOrNull
 import io.goatbytes.kflect.dsl.kflect
@@ -42,8 +42,13 @@ import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Member
 import java.lang.reflect.Method
 import kotlin.reflect.KCallable
+import kotlin.reflect.KClassifier
 import kotlin.reflect.KFunction
 import kotlin.reflect.KProperty
+import io.goatbytes.kflect.ext.topLevelExtensionFunction as _topLevelExtensionFunction
+import io.goatbytes.kflect.ext.topLevelExtensionFunctionOrNull as _topLevelExtensionFunctionOrNull
+import io.goatbytes.kflect.ext.topLevelFunction as _topLevelFunction
+import io.goatbytes.kflect.ext.topLevelFunctionOrNull as _topLevelFunctionOrNull
 
 /**
  * The `Reflect` class provides a set of utilities for working with reflection in Java and Kotlin,
@@ -158,6 +163,17 @@ class KFlect {
     accessible(jClass, _INIT_, *types)
 
   /**
+   * Finds a constructor by its parameter types and returns it.
+   *
+   * @receiver The object to retrieve the constructor for.
+   * @param types The parameter types of the constructor.
+   * @return The found [Constructor].
+   * @throws NoSuchElementException if the accessible object was not found in the class hierarchy
+   */
+  fun Reflective.constructor(vararg types: KotlinClass): Constructor<*> =
+    accessible(jClass, _INIT_, *types.map { it.java }.toTypedArray())
+
+  /**
    * Finds a constructor by its parameter types, returning it or `null` if not found.
    *
    * @receiver The object to retrieve the constructor for.
@@ -200,18 +216,78 @@ class KFlect {
   ) = callableOrNull<T>(kClass, name, *types)
 
   /**
-   * Retrieves a method by name and parameter types.
-   * Throws an [Error] if the method is not found.
+   * Retrieves a function by name and parameter types.
    *
    * @receiver The object to retrieve the method for.
-   * @param name The method name.
+   * @param name The function name.
    * @param types The parameter types.
-   * @return The method.
-   * @throws NoSuchElementException if the accessible object was not found in the class hierarchy
+   * @return The function.
+   * @throws NoSuchElementException if the function was not found in the class hierarchy
    */
-  @Throws(NoSuchElementException::class)
+  @Throws(
+    NoSuchFunctionException::class,
+    NoSuchPropertyException::class,
+    IllegalStateException::class
+  )
   fun Reflective.function(name: String, vararg types: KotlinClass): KFunction<*> =
     callable<KFunction<*>>(kClass, name, *types)
+
+  /**
+   * Retrieves a top-level function with the specified [name] and parameter types [types] from the
+   * associated `kClass` in this `Reflective` instance.
+   *
+   * @param name The name of the function to retrieve.
+   * @param types The expected parameter types of the function.
+   * @return The matching `KFunction` if found.
+   * @throws NoSuchFunctionException if the function is not found.
+   */
+  fun Reflective.topLevelFunction(name: String, vararg types: KClassifier): KFunction<*> =
+    kClass._topLevelFunction(name, *types)
+
+  /**
+   * Attempts to retrieve a top-level function with the specified [name] and parameter types [types]
+   * from the associated `kClass` in this `Reflective` instance, returning `null` if not found.
+   *
+   * @param name The name of the function to search for.
+   * @param types The expected parameter types of the function.
+   * @return The matching `KFunction` if found, or `null` if no matching function is found.
+   */
+  fun Reflective.topLevelFunctionOrNull(name: String, vararg types: KClassifier): KFunction<*>? =
+    kClass._topLevelFunctionOrNull(name, *types)
+
+  /**
+   * Retrieves a top-level extension function with the specified [name], [receiver] type, and
+   * parameter types [types] from the associated `kClass` in this `Reflective` instance.
+   *
+   * @param receiver The type of the extension function's receiver.
+   * @param name The name of the extension function to retrieve.
+   * @param types The expected parameter types of the extension function.
+   * @return The matching `KFunction` if found.
+   * @throws NoSuchFunctionException if the extension function is not found.
+   */
+  fun Reflective.topLevelExtensionFunction(
+    receiver: KClassifier,
+    name: String,
+    vararg types: KClassifier
+  ): KFunction<*> =
+    kClass._topLevelExtensionFunction(receiver, name, *types)
+
+  /**
+   * Attempts to retrieve a top-level extension function with the specified [name], [receiver]
+   * type, and parameter types [types] from the associated `kClass` in this `Reflective` instance,
+   * returning `null` if not found.
+   *
+   * @param receiver The type of the extension function's receiver.
+   * @param name The name of the extension function to search for.
+   * @param types The expected parameter types of the extension function.
+   * @return The matching `KFunction` if found, or `null` if no matching extension function is found.
+   */
+  fun Reflective.topLevelExtensionFunctionOrNull(
+    receiver: KClassifier,
+    name: String,
+    vararg types: KClassifier
+  ): KFunction<*>? =
+    kClass._topLevelExtensionFunctionOrNull(receiver, name, *types)
 
   /**
    * Retrieves a method by name and parameter types, or null if not found.
@@ -259,7 +335,7 @@ class KFlect {
    * @throws ReflectiveOperationException if the specified member cannot be found.
    */
   @Throws(ReflectiveOperationException::class)
-  fun Reflective.invokable(name: String, vararg args: Any?): Invokable<*> {
+  fun Reflective.invokable(name: String, vararg args: Any?): Invokable {
     return invokable(this, name, *args)
   }
 
@@ -275,7 +351,7 @@ class KFlect {
    * @param args The arguments to pass to the function or method.
    * @return An [Invokable] wrapper for the member (Java or Kotlin), or null if not found.
    */
-  fun Reflective.invokableOrNull(name: String, vararg args: Any?): Invokable<*>? =
+  fun Reflective.invokableOrNull(name: String, vararg args: Any?): Invokable? =
     invokableOrNull(this, name, *args)
 
   /**
@@ -299,7 +375,7 @@ class KFlect {
     InstantiationException::class
   )
   inline fun <reified T> Reflective.newInstance(vararg args: Any?): T {
-    return executable<Constructor<T>>(jClass, _INIT_, *args).newInstance(*args) as T
+    return invokable(_INIT_, *args)(*args).getOrNull() as T
   }
 
   /**
@@ -316,11 +392,19 @@ class KFlect {
    */
   @Throws(NoSuchFieldException::class, IllegalAccessException::class)
   operator fun Reflective.set(fieldName: String, value: Any?) {
-    val field = jClass.field(fieldName)
-    if (field.isStatic) {
-      field.staticValue = value
-    } else {
-      field.assign(this, value)
+    val member = jClass.fieldOrNull(fieldName) ?: kClass.propertyOrNull(fieldName)
+    when (member) {
+      is Field -> {
+        if (member.isStatic) {
+          member.staticValue = value
+        } else {
+          member.assign(this, value)
+        }
+      }
+
+      is KProperty<*> -> {
+        member[this] = value
+      }
     }
   }
 
@@ -347,16 +431,23 @@ class KFlect {
   operator fun Reflective.set(property: KProperty<*>, value: Any?) = property.set(this, value)
 
   /**
-   * Invokes an [Invokable] on the object and returns the result.
+   * Invokes the appropriate behavior for this `Reflective` instance based on its type.
    *
-   * @receiver The object the underlying invokable is invoked from.
-   * @param name The method/function/constructor/field/property name to invoke.
-   * @param args The arguments for the method/function/constructor.
-   * @return The value of the field/property or the result of the method/function invocation.
-   * @throws ReflectiveOperationException if the invokable was not found in the hierarchy
+   * This function dynamically dispatches an invocation depending on whether the instance is
+   * a [Constructor], [Method], [Field], [KFunction], or [KProperty]. If the instance type
+   * is `null` or not supported, it attempts to invoke a method with the provided arguments
+   * using reflection on a name, if the first argument is a [String].
+   *
+   * @param args The arguments to use in the invocation. These are spread into the invoked member
+   *             as needed, depending on its type.
+   * @return The result of invoking the member, or `null` if the invocation could not be performed.
    */
-  operator fun Reflective?.invoke(name: String, vararg args: Any?): Any? =
-    this?.invokable(name, *args)?.invoke(this, *args)
+  operator fun Reflective?.invoke(vararg args: Any?): Any? {
+    return when (this) {
+      null -> null
+      else -> ReflectiveInvoker(this)(*args)
+    }
+  }
 
   /**
    * Retrieves the value of a field or method result by name from this [Reflective] object,
@@ -387,7 +478,7 @@ class KFlect {
    */
   @Suppress("TooGenericExceptionCaught")
   @Throws(ReflectiveOperationException::class)
-  inline fun <reified T> Reflective.require(name: String, vararg args: Any?): T {
+  inline fun <reified T> Reflective?.require(name: String, vararg args: Any?): T {
     return try {
       when (val result = this(name, *args)) {
         is T -> result
