@@ -49,7 +49,7 @@ object BuildConfig {
   object Version {
     private const val MAJOR = 1
     private const val MINOR = 0
-    private const val PATCH = 0
+    private const val PATCH = 1
     private const val BUILD_NUMBER = 0
     private val IDENTIFIER = build.Version.Identifier.Beta
 
