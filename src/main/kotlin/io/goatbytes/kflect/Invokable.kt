@@ -17,9 +17,8 @@
 
 package io.goatbytes.kflect
 
-import io.goatbytes.kflect.Invokable.Type
-import io.goatbytes.kflect.ext.isConstructor
-import io.goatbytes.kflect.ext.isNotStatic
+import io.goatbytes.kflect.ext.isStatic
+import io.goatbytes.kflect.ext.name
 import java.lang.reflect.Constructor
 import java.lang.reflect.Field
 import java.lang.reflect.Member
@@ -29,158 +28,153 @@ import kotlin.reflect.KFunction
 import kotlin.reflect.KProperty
 
 /**
- * A class representing an invokable member, such as a method, constructor, field, function, or
- * property.
- *
- * This class abstracts over Java reflection members (e.g., [Method], [Field], [Constructor]) and
- * Kotlin reflection callables (e.g., [KFunction], [KProperty]), providing a unified interface for
- * invoking them. It simplifies the invocation of these members and handles both Java and Kotlin
- * reflection seamlessly.
- *
- * @param T The type of the member, represented as either [Type.Java] or [Type.Kotlin].
- * @param member The member (method, constructor, field, function, or property) to be invoked.
+ * Represents an invokable entity that can be a Java or Kotlin method, field, constructor,
+ * function, or property. `Invokable` provides a unified interface for invoking each type,
+ * standardizing how arguments are handled and results are returned.
  */
-class Invokable<T : Type> constructor(private val member: T) {
+sealed interface Invokable {
+
+  val name: String
 
   /**
-   * The companion object containing helper functions to instantiate an [Invokable].
+   * Invokes the underlying member or callable with the specified arguments.
+   *
+   * @param args The arguments to pass to the member. For Java methods and fields, the first
+   *             argument is treated as the instance (`this`), followed by method parameters.
+   * @return A [Result] containing the result of the invocation, or an exception (if failed).
+   */
+  operator fun invoke(vararg args: Any?): Result<Any?>
+
+  /**
+   * A wrapper for a Java [Method] that enables standardized invocation and provides
+   * a unified `toString` representation for logging and debugging.
+   *
+   * @param method The underlying Java method.
+   */
+  class JavaMethod(private val method: Method) : Invokable {
+
+    override val name: String get() = this.method.name
+
+    override fun invoke(vararg args: Any?): Result<Any?> = runCatching {
+      if (method.isStatic) {
+        method.invoke(null, *args)
+      } else {
+        method.invoke(args.obj, *args.arguments)
+      }
+    }
+
+    override fun toString(): String = method.toString()
+  }
+
+  /**
+   * A wrapper for a Java [Field] that enables standardized access to field values
+   * and provides a unified `toString` representation.
+   *
+   * @param field The underlying Java field.
+   */
+  class JavaField(private val field: Field) : Invokable {
+
+    override val name: String get() = this.field.name
+
+    override fun invoke(vararg args: Any?): Result<Any?> = runCatching {
+      field.get(args.obj)
+    }
+
+    override fun toString(): String = field.toString()
+  }
+
+  /**
+   * A wrapper for a Java [Constructor] that enables invocation of constructors with specified
+   * arguments and provides a unified `toString` representation.
+   *
+   * @param constructor The underlying Java constructor.
+   */
+  class JavaConstructor(private val constructor: Constructor<*>) : Invokable {
+
+    override val name: String get() = constructor.name
+
+    override fun invoke(vararg args: Any?): Result<Any?> = runCatching {
+      constructor.newInstance(*args)
+    }
+
+    override fun toString(): String = constructor.toString()
+  }
+
+  /**
+   * A wrapper for a Kotlin [KFunction] that enables invocation with specified arguments
+   * and provides a unified `toString` representation.
+   *
+   * @param function The underlying Kotlin function.
+   */
+  class KotlinFunction(private val function: KFunction<*>) : Invokable {
+
+    override val name: String get() = this.function.name
+
+    override fun invoke(vararg args: Any?): Result<Any?> = runCatching {
+      function.call(*args)
+    }
+
+    override fun toString(): String = function.toString()
+  }
+
+  /**
+   * A wrapper for a Kotlin [KProperty] that enables standardized access to property values
+   * and provides a unified `toString` representation.
+   *
+   * @param property The underlying Kotlin property.
+   */
+  class KotlinProperty(private val property: KProperty<*>) : Invokable {
+
+    override val name: String get() = this.property.name
+
+    override fun invoke(vararg args: Any?): Result<Any?> = runCatching {
+      property.getter.call(args.obj)
+    }
+
+    override fun toString(): String = property.toString()
+  }
+
+  /**
+   * The companion object for creating instances of [Invokable].
    */
   companion object {
-    /**
-     * Creates an [Invokable] for a Java reflection [Member] (e.g., a [Method], [Field], or
-     * [Constructor]).
-     *
-     * Usage:
-     * ```kotlin
-     * val method: Method = SomeClass::class.method("someMethod")
-     * val invokable = Invokable of method
-     * ```
-     *
-     * @param member The Java reflection [Member] to wrap.
-     * @return An [Invokable] instance that can invoke the member.
+
+    /*
+     * Extracts the receiver object (i.e., the target instance) from the argument array.
      */
-    infix fun java(member: Member) = Invokable(Type.Java(member))
+    private val Array<out Any?>.obj: Any? get() = firstOrNull()
+
+    /*
+     * Extracts the arguments for the member invocation, excluding the first element, which
+     * is treated as the receiver object.
+     */
+    private val Array<out Any?>.arguments get() = drop(1).toTypedArray()
 
     /**
-     * Creates an [Invokable] for a Kotlin reflection [KCallable] (e.g., a [KFunction] or
-     * [KProperty]).
+     * Creates an [Invokable] instance from a Kotlin [KCallable] ([KFunction], [KProperty]).
      *
-     * Usage:
-     * ```kotlin
-     * val function: KFunction<*> = SomeClass::someFunction
-     * val invokable = Invokable of function
-     * ```
-     *
-     * @param callable The Kotlin reflection [KCallable] to wrap.
-     * @return An [Invokable] instance that can invoke the callable.
+     * @param callable The Kotlin callable to wrap.
+     * @return An [Invokable] instance for the specified callable.
+     * @throws IllegalArgumentException If the callable type is not supported.
      */
-    infix fun kotlin(callable: KCallable<*>) = Invokable(Type.Kotlin(callable))
-  }
-
-  /**
-   * Checks if the member is a [Method].
-   *
-   * @return `true` if the member is a Java [Method], `false` otherwise.
-   */
-  val isMethod: Boolean get() = member.value is Method
-
-  /**
-   * Checks if the member is a [Field].
-   *
-   * @return `true` if the member is a Java [Field], `false` otherwise.
-   */
-  val isField: Boolean get() = member.value is Field
-
-  /**
-   * Checks if the member is a Kotlin [KFunction].
-   *
-   * @return `true` if the member is a Kotlin function, `false` otherwise.
-   */
-  val isFunction: Boolean get() = member.value is KFunction<*>
-
-  /**
-   * Checks if the member is a Kotlin [KProperty].
-   *
-   * @return `true` if the member is a Kotlin property, `false` otherwise.
-   */
-  val isProperty: Boolean get() = member.value is KProperty<*>
-
-  /**
-   * Checks if the member is a constructor.
-   *
-   * This property checks whether the member is a constructor, either as a Java [Constructor]
-   * or as a Kotlin [KFunction] that represents a constructor.
-   *
-   * @return `true` if the member is a constructor, `false` otherwise.
-   */
-  val isConstructor: Boolean
-    get() = when (val func = member.value) {
-      is Constructor<*> -> true
-      is KFunction<*> -> func.isConstructor
-      else -> false
+    fun create(callable: KCallable<*>): Invokable = when (callable) {
+      is KFunction<*> -> KotlinFunction(callable)
+      is KProperty<*> -> KotlinProperty(callable)
+      else -> error("Unsupported type: ${callable::class.name}")
     }
 
-  /**
-   * Invokes the member with the specified arguments.
-   *
-   * The behavior of this method depends on the type of member:
-   * - **Constructor**: Creates a new instance using the provided arguments.
-   * - **Method**:      Invokes the method on the receiver (if applicable) and passes the arguments.
-   * - **Field**:       Returns the field's value for the specified receiver. If the field is
-   *                    static, no receiver is needed.
-   * - **Property**:   Invokes the getter of the Kotlin property with the provided arguments.
-   * - **Function**:    Invoked the Kotlin function with the provided arguments
-   *
-   * Example usage:
-   * ```kotlin
-   * val method: Method = SomeClass::class.java.getMethod("someMethod")
-   * val invokable = Invokable.of(method)
-   * invokable(someInstance, arg1, arg2)
-   * ```
-   *
-   * @param args The arguments to pass to the member (receiver first for methods/fields).
-   * @return The result of invoking the member, or `null` if the invocation fails.
-   * @throws Exception if an error occurs during invocation. Errors are logged in `DEBUG` mode.
-   */
-  @Suppress("TooGenericExceptionCaught", "SpreadOperator")
-  operator fun invoke(vararg args: Any?): Any? = try {
-    when (val invokable = member.value) {
-      is Constructor<*> -> invokable.newInstance(*args)
-      is Method -> invokable.invoke(args.firstOrNull(), *(args.drop(1).toTypedArray()))
-      is Field -> invokable.get(args.firstOrNull()?.takeIf { invokable.isNotStatic })
-      is KProperty<*> -> invokable.getter.call(*args)
-      is KFunction<*> -> invokable.call(*args)
-      else -> null
-    }
-  } catch (e: Exception) {
-    if (DEBUG) {
-      println("Failed to invoke member: ${member.value} with args: ${args.joinToString()}")
-    }
-    null
-  }
-
-  /**
-   * A sealed class representing the type of the member, which can be either Java or Kotlin
-   * reflection.
-   */
-  sealed class Type {
     /**
-     * The value of the type.
-     */
-    abstract val value: Any
-
-    /**
-     * Represents a Java reflection member (e.g., [Method], [Field], or [Constructor]).
+     * Creates an [Invokable] instance from a Java [Member] ([Method], [Field], [Constructor]).
      *
-     * @property value The Java reflection member.
+     * @param member The Java member to wrap.
+     * @return An [Invokable] instance for the specified member.
+     * @throws IllegalArgumentException If the member type is not supported.
      */
-    class Java(override val value: Member) : Type()
-
-    /**
-     * Represents a Kotlin callable (e.g., [KFunction] or [KProperty]).
-     *
-     * @property value The Kotlin reflection callable.
-     */
-    class Kotlin(override val value: KCallable<*>) : Type()
+    fun create(member: Member): Invokable = when (member) {
+      is Method -> JavaMethod(member)
+      is Field -> JavaField(member)
+      is Constructor<*> -> JavaConstructor(member)
+      else -> error("Unsupported type: ${member::class.name}")
+    }
   }
 }
