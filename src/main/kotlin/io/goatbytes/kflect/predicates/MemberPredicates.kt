@@ -20,10 +20,7 @@ package io.goatbytes.kflect.predicates
 import io.goatbytes.kflect.JavaClass
 import io.goatbytes.kflect.ext.accessible
 import java.lang.reflect.AccessibleObject
-import java.lang.reflect.Constructor
-import java.lang.reflect.Field
 import java.lang.reflect.Member
-import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 
 /**
@@ -32,52 +29,44 @@ import java.lang.reflect.Modifier
  * @param T The type of reflection member (e.g., Field, Method) that
  *          extends [AccessibleObject] and [Member].
  */
-sealed class MemberPredicates<T> where T : AccessibleObject, T : Member {
+sealed class MemberPredicates<T> : ReflectivePredicates<T>()
+  where T : AccessibleObject, T : Member {
 
-  /**
-   * Helper to create a predicate for reflection members.
-   *
-   * @param test The test condition to apply on the reflection member.
-   * @return A [Predicate] that checks the provided test condition.
-   */
-  inline fun predicate(crossinline test: (obj: T) -> Boolean) = Predicate<T> { test(it) }
+  override fun name(name: String) = predicate { member -> member.name == name }
 
-  /**
-   * Checks if the member's name equals the given name.
-   *
-   * @param name The name to check for.
-   * @return A [Predicate] checking if the member's name matches the given name.
-   */
-  fun name(name: String) = predicate { member -> member.name == name }
+  override fun prefix(prefix: String) = predicate { member -> member.name.startsWith(prefix) }
 
-  /**
-   * Checks if the member's name starts with the given prefix.
-   *
-   * @param prefix The prefix to check for.
-   * @return A [Predicate] checking if the member's name starts with the given prefix.
-   */
-  fun prefix(prefix: String) = predicate { member -> member.name.startsWith(prefix) }
+  override fun isPublic() = predicate { member -> Modifier.isPublic(member.modifiers) }
 
-  /**
-   * Checks if the member is public.
-   *
-   * @return A [Predicate] checking if the member is public.
-   */
-  fun isPublic() = predicate { member -> Modifier.isPublic(member.modifiers) }
+  override fun isPrivate() = predicate { member -> Modifier.isPrivate(member.modifiers) }
 
-  /**
-   * Checks if the member is private.
-   *
-   * @return A [Predicate] checking if the member is private.
-   */
-  fun isPrivate() = predicate { member -> Modifier.isPrivate(member.modifiers) }
+  override fun isProtected() = predicate { member -> Modifier.isProtected(member.modifiers) }
 
-  /**
-   * Checks if the member is protected.
-   *
-   * @return A [Predicate] checking if the member is protected.
-   */
-  fun isProtected() = predicate { member -> Modifier.isProtected(member.modifiers) }
+  override fun isFinal() = predicate { member -> Modifier.isFinal(member.modifiers) }
+
+  override fun isAbstract() = predicate { member -> Modifier.isAbstract(member.modifiers) }
+
+  override fun setAccessible() = predicate { member ->
+    member.accessible = true
+    member.accessible
+  }
+
+  override fun withAnnotation(annotationClass: Class<Annotation>) = predicate { member ->
+    member.isAnnotationPresent(annotationClass)
+  }
+
+  override fun withAnnotations(vararg annotations: Class<Annotation>) = predicate { member ->
+    member.annotations.contentEquals(annotations)
+  }
+
+  override fun matchesRegex(regex: Regex) = predicate { member -> regex.matches(member.name) }
+
+  @Suppress("DEPRECATION")
+  override fun isAccessible() = predicate { member -> member.isAccessible }
+
+  override fun declaredInPackage(packageName: String) = predicate { member ->
+    member.declaringClass.packageName == packageName
+  }
 
   /**
    * Checks if the member is static.
@@ -92,13 +81,6 @@ sealed class MemberPredicates<T> where T : AccessibleObject, T : Member {
    * @return A [Predicate] checking if the member is static.
    */
   fun isNotStatic() = predicate { member -> !Modifier.isStatic(member.modifiers) }
-
-  /**
-   * Checks if the member is final.
-   *
-   * @return A [Predicate] checking if the member is final.
-   */
-  fun isFinal() = predicate { member -> Modifier.isFinal(member.modifiers) }
 
   /**
    * Checks if the member is synchronized.
@@ -136,13 +118,6 @@ sealed class MemberPredicates<T> where T : AccessibleObject, T : Member {
   fun isInterface() = predicate { member -> Modifier.isInterface(member.modifiers) }
 
   /**
-   * Checks if the member is abstract.
-   *
-   * @return A [Predicate] checking if the member is abstract.
-   */
-  fun isAbstract() = predicate { member -> Modifier.isAbstract(member.modifiers) }
-
-  /**
    * Checks if the member is strict.
    *
    * @return A [Predicate] checking if the member is strict.
@@ -165,50 +140,12 @@ sealed class MemberPredicates<T> where T : AccessibleObject, T : Member {
   fun isDeclaringClass(clazz: JavaClass) = predicate { member -> member.declaringClass == clazz }
 
   /**
-   * Checks if the member is accessible.
-   *
-   * @return A [Predicate] checking if the member is accessible.
-   */
-  @Suppress("DEPRECATION")
-  fun isAccessible() = predicate { member -> member.isAccessible }
-
-  /**
    * Checks if the member can access the provided object.
    *
    * @param obj The object to check accessibility for.
    * @return A [Predicate] checking if the member can access the given object.
    */
   fun canAccess(obj: Any?) = predicate { member -> member.canAccess(obj) }
-
-  /**
-   * Sets the member to be accessible and returns true if successful.
-   *
-   * @return A [Predicate] checking if the member is accessible after setting.
-   */
-  fun setAccessible() = predicate { member ->
-    member.accessible = true
-    member.accessible
-  }
-
-  /**
-   * Checks if the member has the given annotation.
-   *
-   * @param annotationClass The annotation class to check for.
-   * @return A [Predicate] checking if the member has the specified annotation.
-   */
-  fun withAnnotation(annotationClass: Class<Annotation>) = predicate { member ->
-    member.isAnnotationPresent(annotationClass)
-  }
-
-  /**
-   * Checks if the member has all provided annotations.
-   *
-   * @param annotations The annotation classes to check for.
-   * @return A [Predicate] checking if the member has all the provided annotations.
-   */
-  fun withAnnotations(vararg annotations: Class<Annotation>) = predicate { member ->
-    member.annotations.contentEquals(annotations)
-  }
 
   /**
    * Checks if the member has the given modifier.
@@ -229,24 +166,6 @@ sealed class MemberPredicates<T> where T : AccessibleObject, T : Member {
   fun declaredInClass(clazz: JavaClass) = predicate { member ->
     member.declaringClass == clazz
   }
-
-  /**
-   * Checks if the member is declared in the given package.
-   *
-   * @param packageName The package name to check against.
-   * @return A [Predicate] checking if the member is declared in the given package.
-   */
-  fun declaredInPackage(packageName: String) = predicate { member ->
-    member.declaringClass.packageName == packageName
-  }
-
-  /**
-   * Checks if the member's name matches the given regex.
-   *
-   * @param regex The regex to match the member's name against.
-   * @return A [Predicate] checking if the member's name matches the provided regex.
-   */
-  fun matchesRegex(regex: Regex) = predicate { member -> regex.matches(member.name) }
 
   /**
    * Checks if the member belongs to the given package.
@@ -295,40 +214,5 @@ sealed class MemberPredicates<T> where T : AccessibleObject, T : Member {
    */
   fun hasNoAnnotations() = predicate { member ->
     member.annotations.isEmpty()
-  }
-
-  /**
-   * Companion object to create predicates for java reflection.
-   */
-  companion object {
-    /**
-     * Convenience function to create a [Predicate] using the pre-defined [MethodPredicates].
-     *
-     * @param block Generates a predicate for reflection operations on methods.
-     * @return The generated [Predicate].
-     */
-    fun methods(
-      block: MethodPredicates.() -> Predicate<Method>
-    ): Predicate<Method> = MethodPredicates.block()
-
-    /**
-     * Convenience function to create a [Predicate] using the pre-defined [FieldPredicates].
-     *
-     * @param block Generates a predicate for reflection operations on fields.
-     * @return The generated [Predicate].
-     */
-    fun fields(
-      block: FieldPredicates.() -> Predicate<Field>
-    ): Predicate<Field> = FieldPredicates.block()
-
-    /**
-     * Convenience function to create a [Predicate] using the pre-defined [ConstructorPredicates].
-     *
-     * @param block Generates a predicate for reflection operations on constructors.
-     * @return The generated [Predicate].
-     */
-    fun constructors(
-      block: ConstructorPredicates.() -> Predicate<Constructor<*>>
-    ): Predicate<Constructor<*>> = ConstructorPredicates.block()
   }
 }

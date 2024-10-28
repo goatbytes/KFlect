@@ -18,17 +18,49 @@
 package io.goatbytes.kflect.predicates
 
 import io.goatbytes.kflect.DEBUG
+import io.goatbytes.kflect.KotlinClass
+import io.goatbytes.kflect.ext.isConstructor
 import kotlin.reflect.KClass
+import kotlin.reflect.KClassifier
 import kotlin.reflect.KFunction
 import kotlin.reflect.KParameter
 import kotlin.reflect.full.extensionReceiverParameter
+import kotlin.reflect.full.isSubclassOf
 import kotlin.reflect.full.valueParameters
 import kotlin.reflect.jvm.javaMethod
 
 /**
  * Predicates for reflection operations on Kotlin functions.
+ *
+ * Sample usage:
+ * ```kotlin
+ * // Filtering all extension functions
+ * val extensionFunctions = MyClass::class.members.filterIsInstance<KFunction<*>>().filter {
+ *     KFunctionPredicates.isExtensionFunction().test(it)
+ * }
+ *
+ * // Finding functions that accept a String parameter and are marked inline
+ * val stringInlineFunctions = MyClass::class.members.filterIsInstance<KFunction<*>>().filter {
+ *     KFunctionPredicates.parameters(String::class).and(KFunctionPredicates.isInline()).test(it)
+ * }
+ *
+ * // Filtering functions with a wildcard upper bound
+ * val wildcardFunctions = MyClass::class.members.filterIsInstance<KFunction<*>>().filter {
+ *     KFunctionPredicates.parametersMatchWildcardType(Any::class, null).test(it)
+ * }
+ * ```
+ *
+ * @see KCallablePredicates
+ * @see KPropertyPredicates
  */
 data object KFunctionPredicates : KCallablePredicates<KFunction<*>>() {
+
+  /**
+   * Checks if the function is a constructor.
+   *
+   * @return A [Predicate] that checks if the function is a constructor.
+   */
+  fun isConstructor() = predicate { func -> func.isConstructor }
 
   /**
    * Checks if the functions is an extension function.
@@ -43,13 +75,13 @@ data object KFunctionPredicates : KCallablePredicates<KFunction<*>>() {
    * @param parameters The parameter types to check.
    * @return A [Predicate] that checks if the functions' parameter types match the given types.
    */
-  fun parameters(vararg parameters: KClass<*>) = predicate { func ->
+  fun parameters(vararg parameters: KClassifier) = predicate { func ->
     func.parameters.filter { param ->
       param.kind == KParameter.Kind.VALUE
     }.run {
       size == parameters.size && zip(parameters)
         .all { (param, type) ->
-          param.type.classifier == type
+          param.type.classifier == type || param.isSubclassOf(type)
         }
     }
   }
@@ -57,20 +89,14 @@ data object KFunctionPredicates : KCallablePredicates<KFunction<*>>() {
   /**
    * Checks if the function has a parameter of the given type.
    *
-   * @param clazz The parameter type to check for.
+   * @param kClass The parameter type to check for.
    * @return A [Predicate] that checks if the function contains the given parameter type.
    */
-  fun hasParameterType(clazz: KClass<*>) = predicate { func ->
-    func.parameters.any { param -> param.type.classifier == clazz }
+  fun hasParameterType(kClass: KotlinClass) = predicate { func ->
+    func.parameters.any { param -> param.type.classifier == kClass }
   }
 
-  /**
-   * Checks if the function throws the given exception.
-   *
-   * @param exceptionClass The exception type to check.
-   * @return A [Predicate] that checks if the function declares the given exception type.
-   */
-  fun throwsException(exceptionClass: Class<out Throwable>) = predicate { func ->
+  override fun throwsException(exceptionClass: Class<out Throwable>) = predicate { func ->
     func.javaMethod?.exceptionTypes?.contains(exceptionClass) ?: run {
       if (DEBUG) {
         println("No Java method available for ${func.name}")
@@ -100,7 +126,11 @@ data object KFunctionPredicates : KCallablePredicates<KFunction<*>>() {
    * @param type The extension type to check.
    * @return A [Predicate] that checks if the functions' extension type matches the given type.
    */
-  infix fun extensionOf(type: KClass<*>) = predicate { func ->
+  infix fun extensionOf(type: KClassifier) = predicate { func ->
+    val receiver = func.extensionReceiverParameter
+    if (receiver != null && receiver is KClass<*> && type is KClass<*>) {
+      receiver.isInstance(type) || receiver == type
+    }
     func.extensionReceiverParameter?.type?.classifier == type
   }
 
@@ -139,7 +169,7 @@ data object KFunctionPredicates : KCallablePredicates<KFunction<*>>() {
    * @return A [Predicate] that checks if the function's parameter types match the provided
    *          parameterized types.
    */
-  fun parametersMatchParameterizedType(vararg parameterTypes: KClass<*>) = predicate { func ->
+  fun parametersMatchParameterizedType(vararg parameterTypes: KClassifier) = predicate { func ->
     val paramTypes = func.parameters.mapNotNull { p -> p.type.classifier }
     paramTypes.size == parameterTypes.size && paramTypes.zip(parameterTypes)
       .all { (actual, expected) ->
@@ -154,7 +184,7 @@ data object KFunctionPredicates : KCallablePredicates<KFunction<*>>() {
    * @return A [Predicate] that checks if any of the function's parameters have a bound type
    *         that matches the provided bound type.
    */
-  fun parameterTypesHasBound(boundType: KClass<*>) = predicate { func ->
+  fun parameterTypesHasBound(boundType: KotlinClass) = predicate { func ->
     func.parameters.any { param ->
       param.type.arguments.any { arg -> arg.type?.classifier == boundType }
     }
@@ -171,7 +201,7 @@ data object KFunctionPredicates : KCallablePredicates<KFunction<*>>() {
    * @return A [Predicate] that checks if the function's parameters match a wildcard type with
    *         the provided upper and lower bounds.
    */
-  fun parametersMatchWildcardType(upperBound: KClass<*>?, lowerBound: KClass<*>?) =
+  fun parametersMatchWildcardType(upperBound: KClassifier?, lowerBound: KClassifier?) =
     predicate { func ->
       func.parameters.any { param ->
         val upperBounds = param.type.arguments.mapNotNull { it.type?.classifier }
@@ -181,4 +211,10 @@ data object KFunctionPredicates : KCallablePredicates<KFunction<*>>() {
         isUpperBound && isLowerBound
       }
     }
+
+  private fun KParameter.isSubclassOf(classifier: KClassifier): Boolean {
+    val parameterClass = type.classifier as? KClass<*> ?: return false
+    val expectedClass = classifier as? KClass<*> ?: return false
+    return parameterClass.isSubclassOf(expectedClass)
+  }
 }

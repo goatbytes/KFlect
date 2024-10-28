@@ -23,30 +23,43 @@ import java.lang.reflect.ParameterizedType
 import java.lang.reflect.Type
 import java.lang.reflect.TypeVariable
 import java.lang.reflect.WildcardType
+import kotlin.reflect.KClass
 
 /**
  * Predicates for reflection operations on methods.
+ *
+ * Example usage:
+ * ```
+ * val predicate = MethodPredicates.returnType(String::class.java)
+ * val methods = MyClass::class.java.declaredMethods.filter { predicate.test(it) }
+ * ```
+ *
+ * @see ExecutablePredicates
+ * @see ConstructorPredicates
  */
 data object MethodPredicates : ExecutablePredicates<Method>() {
 
-  /**
-   * Checks if the method's return type matches the given type.
-   *
-   * @param clazz The return type to check.
-   * @return A [Predicate] that checks if the method's return type matches the given type.
-   */
-  fun returnType(clazz: JavaClass) = predicate { method ->
-    method.returnType == clazz
+  override fun returnType(kClass: KClass<*>): Predicate<Method> = predicate { method ->
+    method.returnType.isAssignableFrom(kClass.java)
+  }
+
+  override fun returnType(jClass: JavaClass) = predicate { method ->
+    method.returnType.isAssignableFrom(jClass)
   }
 
   /**
-   * Checks if the method's return type is assignable from the given type.
+   * Checks if the method's return type has a bound that is assignable to the given class.
    *
-   * @param clazz The class to check if it's assignable from the method's return type.
-   * @return A [Predicate] that checks if the method's return type is assignable from the given type
+   * @param boundType The class to check against the return type bound.
+   * @return A [Predicate] that verifies if the return type has an assignable bound.
    */
-  fun returnTypeAssignableFrom(clazz: JavaClass) = predicate { method ->
-    method.returnType.isAssignableFrom(clazz)
+  fun returnTypeBoundAssignableTo(boundType: JavaClass) = predicate { method ->
+    val genericType = method.genericReturnType
+    if (genericType is TypeVariable<*>) {
+      genericType.bounds.any { type -> type is Class<*> && boundType.isAssignableFrom(type) }
+    } else {
+      false
+    }
   }
 
   /**

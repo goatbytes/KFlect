@@ -19,14 +19,40 @@ package io.goatbytes.kflect.predicates
 
 import io.goatbytes.kflect.DEBUG
 import io.goatbytes.kflect.JavaClass
+import io.goatbytes.kflect.ext.accessible
 import java.lang.reflect.Field
 import java.lang.reflect.Modifier
 import java.lang.reflect.Type
+import kotlin.reflect.KClass
 
 /**
  * Predicates for reflection operations on fields.
+ *
+ * Sample code:
+ * ```kotlin
+ * val staticFinalFields = SomeClass::class.java.declaredFields.filter {
+ *     FieldPredicates.isStaticFinal().test(it)
+ * }
+ *
+ * val defaultStaticFields = SomeClass::class.java.declaredFields.filter {
+ *     FieldPredicates.hasDefaultValue().test(it)
+ * }
+ *```
+ *
+ * @see MethodPredicates
+ * @see ConstructorPredicates
  */
 data object FieldPredicates : MemberPredicates<Field>() {
+
+  override fun returnType(kClass: KClass<*>) = predicate { field ->
+    field.type.isAssignableFrom(kClass.java)
+  }
+
+  override fun returnType(jClass: Class<*>) = predicate { field ->
+    field.type.isAssignableFrom(jClass)
+  }
+
+  override fun throwsException(exceptionClass: Class<out Throwable>) = predicate { _ -> false }
 
   /**
    * Checks if the field's type matches the given type.
@@ -73,14 +99,14 @@ data object FieldPredicates : MemberPredicates<Field>() {
    * @return A [Predicate] that checks if the static field has a default value of null.
    * @throws IllegalAccessException If the field cannot be accessed.
    */
+  @Suppress("TooGenericExceptionCaught")
   fun hasDefaultValue() = predicate { field ->
     Modifier.isStatic(field.modifiers) && try {
-      @Suppress("DEPRECATION")
-      if (!field.isAccessible) field.isAccessible = true
+      field.accessible = true
       field.get(null) == null
-    } catch (e: IllegalAccessException) {
+    } catch (e: Throwable) {
       if (DEBUG) {
-        System.err.println("Error setting ${field.name} accessibility")
+        System.err.println("Error retrieving ${field.name} value from $field")
         e.printStackTrace()
       }
       false

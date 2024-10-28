@@ -25,6 +25,27 @@ import kotlin.reflect.KProperty
  * Object `KPropertyPredicates` provides predicate functions for filtering and matching properties
  * (instances of [KProperty]) based on various characteristics, such as being `const` or `lateinit`.
  * These predicates can be used to simplify property reflection and filtering operations.
+ *
+ * Sample usage:
+ * ```kotlin
+ * // Filtering all constant properties
+ * val constantProperties = MyClass::class.memberProperties.filter {
+ *     KPropertyPredicates.isConst().test(it)
+ * }
+ *
+ * // Filtering properties of a specific type (e.g., String)
+ * val stringProperties = MyClass::class.memberProperties.filter {
+ *     KPropertyPredicates.hasType<String>().test(it)
+ * }
+ *
+ * // Filtering nullable properties
+ * val nullableProperties = MyClass::class.memberProperties.filter {
+ *     KPropertyPredicates.isNullable().test(it)
+ * }
+ * ```
+ *
+ * @see KCallablePredicates
+ * @see KFunctionPredicates
  */
 data object KPropertyPredicates : KCallablePredicates<KProperty<*>>() {
 
@@ -47,8 +68,6 @@ data object KPropertyPredicates : KCallablePredicates<KProperty<*>>() {
    * @return A [Predicate] that checks if the property is `lateinit`.
    */
   fun isLateInit() = predicate { property -> property.isLateinit }
-
-  // Suggestions for additional functions:
 
   /**
    * Returns a predicate that checks whether a property is a `val` (immutable).

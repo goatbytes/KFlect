@@ -22,8 +22,23 @@ import java.lang.reflect.Executable
 
 /**
  * Predicates for reflection operations on executables.
+ *
+ * ```kotlin
+ * // Sample usage
+ * val isPublicNoArgConstructor = ExecutablePredicates<Constructor<*>>().run {
+ *     isPublic() + hasParameterCount(0)
+ * }
+ * ```
+ *
+ *  @see MethodPredicates
+ *  @see ConstructorPredicates
  */
-open class ExecutablePredicates<T : Executable> : MemberPredicates<T>() {
+abstract class ExecutablePredicates<T : Executable> : MemberPredicates<T>() {
+
+  override fun throwsException(exceptionClass: Class<out Throwable>) = predicate { executable ->
+    executable.exceptionTypes.contains(exceptionClass)
+  }
+
   /**
    * Checks if the executable's parameter types match the given types.
    *
@@ -59,16 +74,6 @@ open class ExecutablePredicates<T : Executable> : MemberPredicates<T>() {
   }
 
   /**
-   * Checks if the executable throws the given exception.
-   *
-   * @param exceptionClass The exception type to check.
-   * @return A [Predicate] that checks if the executable declares the given exception type.
-   */
-  fun throwsException(exceptionClass: Class<out Throwable>) = predicate { executable ->
-    executable.exceptionTypes.contains(exceptionClass)
-  }
-
-  /**
    * Checks if the executable has a vararg parameter.
    *
    * @return A [Predicate] that checks if the executable has a vararg parameter.
@@ -91,6 +96,16 @@ open class ExecutablePredicates<T : Executable> : MemberPredicates<T>() {
    *         annotation.
    */
   fun hasParameterAnnotation(annotationClass: Class<Annotation>) = predicate { executable ->
-    executable.parameters.any { it.isAnnotationPresent(annotationClass) }
+    executable.parameters.any { param -> param.isAnnotationPresent(annotationClass) }
+  }
+
+  /**
+   * Checks if the executable declares any of the specified exception types.
+   *
+   * @param exceptionClasses The exception types to check.
+   * @return A [Predicate] that checks if the executable declares any of the specified exceptions.
+   */
+  fun throwsAnyException(vararg exceptionClasses: Class<out Throwable>) = predicate { exec ->
+    exec.exceptionTypes.any { type -> type in exceptionClasses }
   }
 }

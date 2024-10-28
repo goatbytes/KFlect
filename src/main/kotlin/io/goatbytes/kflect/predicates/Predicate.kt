@@ -73,4 +73,31 @@ fun interface Predicate<T> {
    * @return a new predicate that represents the logical AND of this predicate and the other.
    */
   operator fun plus(other: Predicate<T>): Predicate<T> = this and other
+
+  /**
+   * The companion object for functions to chain predicates.
+   */
+  companion object {
+    /**
+     * Combines multiple predicates using logical AND.
+     *
+     * @param T the type of input to the predicate
+     * @param predicates A list of predicates to combine.
+     * @return A combined predicate that returns true only if all predicates are true.
+     */
+    fun <T> allOf(vararg predicates: Predicate<T>): Predicate<T> = Predicate { value ->
+      predicates.all { predicate -> predicate(value) }
+    }
+
+    /**
+     * Combines multiple predicates using logical OR.
+     *
+     * @param T the type of input to the predicate
+     * @param predicates A list of predicates to combine.
+     * @return A combined predicate that returns true if any predicate is true.
+     */
+    fun <T> anyOf(vararg predicates: Predicate<T>): Predicate<T> = Predicate { value ->
+      predicates.any { predicate -> predicate(value) }
+    }
+  }
 }
