@@ -49,9 +49,9 @@ object BuildConfig {
   object Version {
     private const val MAJOR = 1
     private const val MINOR = 0
-    private const val PATCH = 1
+    private const val PATCH = 2
     private const val BUILD_NUMBER = 0
-    private val IDENTIFIER = build.Version.Identifier.Beta
+    private val IDENTIFIER = build.Version.Identifier.Release
 
     private val BUILD_TIME_PATTERN: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMddHH")
 
