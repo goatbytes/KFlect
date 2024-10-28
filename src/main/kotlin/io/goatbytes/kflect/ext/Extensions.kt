@@ -20,6 +20,7 @@ package io.goatbytes.kflect.ext
 import io.goatbytes.kflect.Annotations
 import io.goatbytes.kflect.GenericParameterTypes
 import io.goatbytes.kflect.JavaClass
+import io.goatbytes.kflect.KConstructor
 import io.goatbytes.kflect.KParameterTypes
 import io.goatbytes.kflect.KotlinClass
 import io.goatbytes.kflect.NullableArgs
@@ -47,6 +48,11 @@ import io.goatbytes.kflect.predicates.KFunctionPredicates
 import io.goatbytes.kflect.predicates.KPropertyPredicates
 import io.goatbytes.kflect.predicates.MethodPredicates
 import io.goatbytes.kflect.predicates.Predicate
+import io.goatbytes.kflect.traverser.ClassTraverser
+import io.goatbytes.kflect.traverser.ext.callableTraverser
+import io.goatbytes.kflect.traverser.ext.functionTraverser
+import io.goatbytes.kflect.traverser.ext.propertyTraverser
+import io.goatbytes.kflect.traverser.ext.traverser
 import java.lang.reflect.AccessibleObject
 import java.lang.reflect.Constructor
 import java.lang.reflect.Executable
@@ -57,18 +63,24 @@ import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import kotlin.reflect.KCallable
 import kotlin.reflect.KClass
+import kotlin.reflect.KClassifier
 import kotlin.reflect.KFunction
 import kotlin.reflect.KMutableProperty
 import kotlin.reflect.KParameter
 import kotlin.reflect.KProperty
+import kotlin.reflect.KTypeParameter
 import kotlin.reflect.full.companionObject
 import kotlin.reflect.full.functions
+import kotlin.reflect.full.instanceParameter
 import kotlin.reflect.full.memberProperties
 import kotlin.reflect.full.staticProperties
 import kotlin.reflect.full.superclasses
+import kotlin.reflect.full.valueParameters
 import kotlin.reflect.jvm.isAccessible
 import kotlin.reflect.jvm.javaField
+import kotlin.reflect.jvm.javaMethod
 import kotlin.reflect.jvm.kotlinFunction
+import kotlin.reflect.jvm.kotlinProperty
 
 /**
  * Traverses the class hierarchy starting from this class and executes the given [block] for each
@@ -107,7 +119,6 @@ inline fun <reified T> JavaClass.traverseFirstNonNullOrNullOf(block: JavaClass.(
 
 /**
  * Traverses the class hierarchy and returns the first result from the given block.
- * Throws an [Error] if no result is found.
  *
  * @param T The expected return type.
  * @param block A block to be executed on each class in the hierarchy.
@@ -135,7 +146,7 @@ inline fun <reified T> JavaClass.traverseFirstNonNullOf(block: JavaClass.() -> T
  *
  * @param block The action to be performed on each class in the hierarchy.
  */
-inline fun KClass<*>.traverse(block: KClass<*>.() -> Unit) {
+inline fun KotlinClass.traverse(block: KotlinClass.() -> Unit) {
   block(this)
   superclasses.forEach(block)
 }
@@ -147,7 +158,7 @@ inline fun KClass<*>.traverse(block: KClass<*>.() -> Unit) {
  * @param block A block to be executed on each class in the hierarchy.
  * @return The first non-null result from the block, or null if none is found.
  */
-inline fun <reified T> KClass<*>.traverseFirstNonNullOrNullOf(block: KClass<*>.() -> T?): T? {
+inline fun <reified T> KotlinClass.traverseFirstNonNullOrNullOf(block: KotlinClass.() -> T?): T? {
   traverse { block(this)?.let { result -> return result } }
   return null
 }
@@ -161,7 +172,7 @@ inline fun <reified T> KClass<*>.traverseFirstNonNullOrNullOf(block: KClass<*>.(
  * @throws NoSuchElementException if no result is found.
  */
 @Throws(NoSuchElementException::class)
-inline fun <reified T> KClass<*>.traverseFirstNonNullOf(block: KClass<*>.() -> T?): T {
+inline fun <reified T> KotlinClass.traverseFirstNonNullOf(block: KotlinClass.() -> T?): T {
   traverse { block(this)?.let { return it } }
   throw NoSuchElementException("${T::class.name} not found in the class hierarchy")
 }
@@ -292,7 +303,7 @@ val Reflective.kClass: KotlinClass
  * @return The [KClass] corresponding to the synthetic file class, or `null` if the file class
  * cannot be found.
  */
-val KotlinClass.topLevelClass: KClass<*>? get() = "${name}Kt".kotlin
+val KotlinClass.topLevelClass: KotlinClass? get() = "$name$TOP_LEVEL_SUFFIX".kotlin
 
 /**
  * Determines if the current [KClass] is a top-level class (i.e., a Kotlin file class).
@@ -310,7 +321,7 @@ val KotlinClass.topLevelClass: KClass<*>? get() = "${name}Kt".kotlin
  *
  * @return `true` if this [KClass] is a top-level (file) class, `false` otherwise.
  */
-fun KClass<*>.isTopLevelClass(): Boolean {
+fun KotlinClass.isTopLevelClass(): Boolean {
   return name.endsWith("Kt") &&
     constructors.isEmpty() &&
     companionObject == null &&
@@ -330,13 +341,180 @@ fun KClass<*>.isTopLevelClass(): Boolean {
  * @return A collection of [KFunction] objects representing the top-level functions
  *         declared in the class. If no functions are found, an empty list is returned.
  */
-val KClass<*>.topLevelFunctions: Collection<KFunction<*>>
+val KotlinClass.topLevelFunctions: Collection<KFunction<*>>
+  get() = when (isTopLevelClass()) {
+    true -> java
+    else -> topLevelClass?.java
+  }?.declaredMethods?.mapNotNull { method ->
+    method.kotlinFunction
+  } ?: emptyList()
+
+/**
+ * Retrieves the collection of top-level properties for this [KClass].
+ *
+ * If the current class is identified as a top-level class (e.g., a file class), it retrieves
+ * all the top-level properties declared within it. If the current class is not a top-level class,
+ * it attempts to find the top-level class corresponding to the current class and retrieves
+ * the top-level properties from there.
+ *
+ * @receiver The [KClass] to inspect for top-level properties.
+ * @return A collection of [KProperty] objects representing the top-level properties
+ *         declared in the class. If no properties are found, an empty list is returned.
+ */
+val KotlinClass.topLevelProperties: Collection<KProperty<*>>
   get() = when {
     isTopLevelClass() -> this
     else -> topLevelClass
-  }?.java?.declaredMethods?.mapNotNull { method ->
-    method.kotlinFunction
+  }?.java?.declaredFields?.mapNotNull { field ->
+    field.kotlinProperty
   } ?: emptyList()
+
+/**
+ * Retrieves the collection of top-level members for this [KClass].
+ *
+ * If the current class is identified as a top-level class (e.g., a file class), it retrieves
+ * all the top-level members declared within it. If the current class is not a top-level class,
+ * it attempts to find the top-level class corresponding to the current class and retrieves
+ * the top-level members from there.
+ *
+ * @receiver The [KClass] to inspect for top-level members.
+ * @return A collection of [KCallable] objects representing the top-level members
+ *         declared in the class. If no members are found, an empty list is returned.
+ */
+val KotlinClass.topLevelMembers: Collection<KCallable<*>>
+  get() = topLevelFunctions + topLevelProperties
+
+/**
+ * Retrieves the collection of companion object functions for this [KClass].
+ *
+ * This property provides access to all the functions declared within the companion object.
+ * If the current class is itself a companion object, it returns its functions.
+ * If there is no companion object, an empty collection is returned.
+ *
+ * Example usage:
+ * ```kotlin
+ * val companionFunctions = MyClass::class.companionFunctions
+ * companionFunctions.forEach { function ->
+ *     println(function.name)
+ * }
+ * ```
+ *
+ * @receiver The [KClass] to retrieve the companion object functions from.
+ * @return A collection of [KFunction]s representing the functions in the companion object.
+ */
+val KotlinClass.companionFunctions: Collection<KFunction<*>>
+  get() = when {
+    isCompanion -> functions
+    else -> companionObject?.functions ?: emptyList()
+  }
+
+/**
+ * Retrieves all functions for this [KClass], including regular functions, companion object
+ * functions, and top-level functions.
+ *
+ * This property provides a comprehensive list of all the functions associated with this class,
+ * combining functions declared in the class itself, in its companion object, and top-level
+ * functions.
+ *
+ * Example usage:
+ * ```kotlin
+ * val allFunctions = MyClass::class.allFunctions
+ * allFunctions.forEach { function ->
+ *     println(function.name)
+ * }
+ * ```
+ *
+ * @receiver The [KClass] containing the functions.
+ * @return A collection of [KFunction]s representing all functions in this class.
+ */
+val KotlinClass.allFunctions: Collection<KFunction<*>>
+  get() = buildList {
+    addAll(functions)
+    addAll(companionFunctions)
+    addAll(topLevelFunctions)
+  }
+
+/**
+ * Retrieves all members for this [KClass], including regular members, companion object
+ * members, top-level members.
+ *
+ * This property provides a comprehensive list of all the members associated with this class,
+ * combining members declared in the class itself, in its companion object, and top-level
+ * members.
+ *
+ * Example usage:
+ * ```kotlin
+ * val allMembers = MyClass::class.allMembers
+ * allMembers.forEach { member ->
+ *     println(member.name)
+ * }
+ * ```
+ *
+ * @receiver The [KClass] containing the members.
+ * @return A collection of [KCallable]s representing all members in this class.
+ */
+val KotlinClass.allMembers: Collection<KCallable<*>>
+  get() = buildList {
+    addAll(members)
+    companionObject?.run {
+      addAll(members)
+    }
+    addAll(topLevelMembers)
+  }
+
+/**
+ * Retrieves the collection of companion object properties for this [KClass].
+ *
+ * This property provides access to all the properties declared within the companion object.
+ * If the current class is itself a companion object, it returns its properties.
+ * If there is no companion object, an empty collection is returned.
+ *
+ * Example usage:
+ * ```kotlin
+ * val companionProperties = MyClass::class.companionProperties
+ * companionProperties.forEach { property ->
+ *     println(property.name)
+ * }
+ * ```
+ *
+ * @receiver The [KClass] to retrieve the companion object properties from.
+ * @return A collection of [KProperty]s representing the properties in the companion object.
+ */
+val KotlinClass.companionProperties: Collection<KProperty<*>>
+  get() = when {
+    isCompanion -> memberProperties
+    else -> companionObject?.memberProperties ?: emptyList()
+  }
+
+/**
+ * Retrieves all properties for this [KClass], including regular properties, companion object
+ * properties, top-level properties.
+ *
+ * This property provides a comprehensive list of all the properties associated with this class,
+ * combining properties declared in the class itself, in its companion object, and top-level
+ * properties.
+ *
+ * Example usage:
+ * ```kotlin
+ * val allMembers = MyClass::class.allProperties
+ * allMembers.forEach { member ->
+ *     println(member.name)
+ * }
+ * ```
+ *
+ * @receiver The [KClass] containing the properties.
+ * @return A collection of [KCallable]s representing all properties in this class.
+ */
+val KotlinClass.allProperties: Collection<KCallable<*>>
+  get() = buildList {
+    addAll(memberProperties)
+    addAll(staticProperties)
+    companionObject?.run {
+      addAll(memberProperties)
+      addAll(staticProperties)
+    }
+    addAll(topLevelProperties)
+  }
 
 /**
  * Returns the fully qualified dot-separated name of the class.
@@ -347,17 +525,37 @@ val KClass<*>.topLevelFunctions: Collection<KFunction<*>>
  */
 val KotlinClass.name: String get() = qualifiedName ?: java.name
 
-private val String.kotlin: KClass<*>?
+/**
+ * Retrieves the name of the classifier, if available.
+ *
+ * This property returns the name of the classifier depending on its specific type. It supports
+ * several classifier types including `KClass`, `KFunction`, `KParameter`, and `KTypeParameter`.
+ * If the classifier type is unknown, it returns `"<unknown>"`.
+ *
+ * @receiver The classifier whose name is being retrieved.
+ * @return The name of the classifier if available, or `"<unknown>"` if the type is not supported.
+ */
+val KClassifier.name: String
+  get() = when (this) {
+    is KClass<*> -> name
+    is KFunction<*> -> name
+    is KParameter -> name.orEmpty()
+    is KTypeParameter -> name
+    else -> "<unknown>"
+  }
+
+private val String.kotlin: KotlinClass?
   get() = tryOrNull { if (isClass()) toKotlinClass() else null }
 
 private val String.java: Class<*>?
   get() = tryOrNull { if (isClass()) toJavaClass() else null }
 
+private const val TOP_LEVEL_SUFFIX = "Kt"
+
 // -------------------------------------------------------------------------------------------------
 
 /**
  * Retrieves a method by name and parameter types.
- * Throws an [Error] if the method is not found.
  *
  * @receiver The class to retrieve the method for.
  * @param name The method name.
@@ -424,7 +622,6 @@ fun JavaClass.constructorOrNull(vararg types: JavaClass): Constructor<*>? =
 
 /**
  * Retrieves a function by name and parameter types.
- * Throws an [Error] if the function is not found.
  *
  * @receiver The class to retrieve the function for.
  * @param name The function name.
@@ -433,9 +630,9 @@ fun JavaClass.constructorOrNull(vararg types: JavaClass): Constructor<*>? =
  * @throws NoSuchFunctionException if the function was not found in the class hierarchy
  */
 @Throws(NoSuchFunctionException::class)
-fun KClass<*>.function(name: String, vararg types: KClass<*>): KFunction<*> {
+fun KotlinClass.function(name: String, vararg types: KClassifier): KFunction<*> {
   return functionOrNull(name, *types) ?: throw NoSuchFunctionException(
-    kClass = this, name = name, parameters = types
+    "'fun $name${types.signature()}' not found in '${this.name}'"
   )
 }
 
@@ -447,17 +644,184 @@ fun KClass<*>.function(name: String, vararg types: KClass<*>): KFunction<*> {
  * @param types The parameter types.
  * @return The function or null if not found.
  */
-fun KClass<*>.functionOrNull(name: String, vararg types: KClass<*>): KFunction<*>? {
-  return functions.firstOrNull { function ->
-    function.name == name && function.parameters
-      .dropWhile { p -> p.kind == KParameter.Kind.INSTANCE }
-      .run {
-        size == types.size && zip(types)
-          .all { (param: KParameter, type: KClass<*>) ->
-            param.type.classifier == type
-          }
-      }
+fun KotlinClass.functionOrNull(name: String, vararg types: KClassifier): KFunction<*>? {
+  return findFunction { name(name) and parameters(*types) }?.apply { accessible = true }
+}
+
+/**
+ * Finds the first non-null function in this [KClass] that matches the given condition.
+ *
+ * This function searches through the functions, companion functions, and top-level functions
+ * of this class and returns the first function that satisfies the provided condition.
+ * If no such function is found, `null` is returned.
+ *
+ * Example usage:
+ * ```kotlin
+ * val functionOrNull = MyClass::class.firstNonNullFunctionOrNull { it.name == "myFunction" }
+ * if (functionOrNull != null) {
+ *     println("Found function: ${'$'}{functionOrNull.name}")
+ * }
+ * ```
+ *
+ * @receiver The [KClass] to traverse functions from.
+ * @param block The condition to apply to each function.
+ * @return The first matching [KFunction], or `null` if no match is found.
+ */
+fun KotlinClass.firstNonNullFunctionOrNull(block: KFunction<*>.() -> Boolean): KFunction<*>? {
+  return buildList {
+    add { functions }
+    add { companionFunctions }
+    add { topLevelFunctions }
+  }.firstNotNullOfOrNull { getFunctions ->
+    val functions = getFunctions()
+    functions.find(block)
   }
+}
+
+/**
+ * Finds the first non-null function in this [KClass] that matches the given condition.
+ *
+ * This function searches through the functions, companion functions, and top-level functions
+ * of this class and returns the first function that satisfies the provided condition.
+ * If no such function is found, a [NoSuchFunctionException] is thrown.
+ *
+ * Example usage:
+ * ```kotlin
+ * val function = MyClass::class.firstNonNullFunction { it.name == "myFunction" }
+ * println("Found function: ${'$'}{function.name}")
+ * ```
+ *
+ * @receiver The [KClass] to traverse functions from.
+ * @param block The condition to apply to each function.
+ * @return The first matching [KFunction].
+ * @throws NoSuchFunctionException if no matching function is found.
+ */
+@Throws(NoSuchFunctionException::class)
+fun KotlinClass.firstNonNullFunction(block: KFunction<*>.() -> Boolean): KFunction<*> =
+  firstNonNullFunctionOrNull(block) ?: throw NoSuchFunctionException()
+
+/**
+ * Checks if the value parameters of the function match the given classifiers in both size and type.
+ *
+ * This infix function compares the classifiers of the function's value parameters with the given
+ * array of classifiers. It ensures that each value parameter has a corresponding classifier that
+ * matches.
+ *
+ * @receiver The function whose value parameters are being checked.
+ * @param classifiers An array of classifiers to compare against the function's value parameters.
+ * @return `true` if the function's value parameters match the given classifiers in both size and
+ * type, `false` otherwise.
+ */
+infix fun KFunction<*>.valueParametersEqual(classifiers: Array<out KClassifier>): Boolean {
+  return valueParameters.run {
+    size == classifiers.size && zip(classifiers).all { types ->
+      val (parameter, classifier) = types
+      parameter.type.classifier == classifier
+    }
+  }
+}
+
+/**
+ * Checks if the value parameters of the function match the given classifiers in both size and type.
+ *
+ * This infix function compares the classifiers of the function's value parameters with the given
+ * list of classifiers. It ensures that each value parameter has a corresponding classifier that
+ * matches.
+ *
+ * @receiver The function whose value parameters are being checked.
+ * @param classifiers A list of classifiers to compare against the function's value parameters.
+ * @return `true` if the function's value parameters match the given classifiers in both size and
+ * type, `false` otherwise.
+ */
+infix fun KFunction<*>.valueParametersEqual(classifiers: List<KClassifier>): Boolean {
+  return valueParameters.run {
+    size == classifiers.size && zip(classifiers).all { types ->
+      val (parameter, classifier) = types
+      parameter.type.classifier == classifier
+    }
+  }
+}
+
+/**
+ * Checks if the return type of the function matches the given classifier.
+ *
+ * This infix function compares the classifier of the function's return type with the given
+ * classifier.
+ *
+ * @receiver The function whose return type is being checked.
+ * @param classifier The classifier to compare against the function's return type.
+ * @return `true` if the function's return type matches the given classifier, `false` otherwise.
+ */
+infix fun KFunction<*>.returnTypeEquals(classifier: KClassifier): Boolean {
+  return returnType.classifier == classifier
+}
+
+/**
+ * Checks if the declaring class of the function matches the given classifier.
+ *
+ * This infix function compares the classifier of the callable's instance parameter type with the
+ * given classifier, indicating whether the callable belongs to the specified class.
+ *
+ * @receiver The callable whose declaring class is being checked.
+ * @param classifier The classifier to compare against the function's declaring class.
+ * @return `true` if the callable's declaring class matches the given classifier, `false` otherwise.
+ */
+infix fun KCallable<*>.declaringClassEquals(classifier: KClassifier): Boolean {
+  return instanceParameter?.type?.classifier == when {
+    classifier is KClass<*> && !classifier.isCompanion -> classifier.companionObject ?: classifier
+    else -> classifier
+  }
+}
+
+/**
+ * Checks if the extension class of the function matches the given classifier.
+ *
+ * This infix function compares the classifier of the function's extension parameter type with the
+ * given classifier, indicating whether the function extends the specified class.
+ *
+ * @receiver The function whose extension class is being checked.
+ * @param classifier The classifier to compare against the function's extension class.
+ * @return `true` if the function's extension class matches the given classifier, `false` otherwise.
+ */
+infix fun KFunction<*>.extensionClassEquals(classifier: KClassifier?): Boolean {
+  return extensionParameter?.type?.classifier == classifier
+}
+
+/**
+ * Finds a constructor in this [KClass] that matches the provided parameter types.
+ *
+ * This function attempts to find a constructor that matches the given parameter types.
+ * If no such constructor is found, a [NoSuchFunctionException] is thrown.
+ *
+ * @param types The parameter types for the constructor to find.
+ * @return The found constructor of type [KConstructor].
+ * @throws NoSuchFunctionException if no matching constructor is found.
+ */
+@Throws(NoSuchFunctionException::class)
+fun KotlinClass.constructor(vararg types: KotlinClass): KConstructor {
+  return constructorOrNull(*types) ?: throw NoSuchFunctionException(
+    "constructor with parameters ${types.signature()} not found in $name"
+  )
+}
+
+/**
+ * Attempts to find a constructor in this [KClass] that matches the provided parameter types.
+ *
+ * This function searches for a constructor with the given parameter types. If found, the matching
+ * constructor is returned. If no such constructor is found, `null` is returned.
+ *
+ * @param types The parameter types for the constructor to find.
+ * @return The found constructor of type [KConstructor], or `null` if not found.
+ */
+fun KotlinClass.constructorOrNull(vararg types: KClassifier): KConstructor? {
+  return constructors.find { constructor ->
+    constructor.parameters.run {
+      size == types.size && zip(types)
+        .all { (param: KParameter, type: KClassifier) ->
+          param.type.classifier == type
+        }
+    }
+  }?.apply { accessible = true }
 }
 
 /**
@@ -469,15 +833,15 @@ fun KClass<*>.functionOrNull(name: String, vararg types: KClass<*>): KFunction<*
  * @param types The parameter types of the extension function.
  * @return The matching [KFunction] or `null` if no match is found.
  */
-fun KClass<*>.extensionFunctionOrNull(
-  receiver: KClass<*>,
+fun KotlinClass.extensionFunctionOrNull(
+  receiver: KotlinClass,
   name: String,
-  vararg types: KClass<*>
+  vararg types: KClassifier
 ): KFunction<*>? = find(
   functionPredicates {
-    name(name) and extensionOf(receiver) and parameters(*types)
+    name(name) and extensionOf(receiver) and parameters(*types) and setAccessible()
   }
-)
+)?.apply { isAccessible = true }
 
 /**
  * Finds an extension function in this [KClass] that matches the specified receiver type, name,
@@ -490,12 +854,64 @@ fun KClass<*>.extensionFunctionOrNull(
  * @throws NoSuchFunctionException if no matching function is found.
  */
 @Throws(NoSuchFunctionException::class)
-fun KClass<*>.extensionFunction(
-  receiver: KClass<*>,
+fun KotlinClass.extensionFunction(
+  receiver: KotlinClass,
   name: String,
-  vararg types: KClass<*>
-): KFunction<*> = extensionFunctionOrNull(receiver, name, *types)
-  ?: throw NoSuchFunctionException(this, name, receiver, types)
+  vararg types: KClassifier
+): KFunction<*> = extensionFunctionOrNull(receiver, name, *types) ?: throw NoSuchFunctionException(
+  "fun ${receiver.name}.$name${types.signature()}' not found in '${this.name}'"
+)
+
+/**
+ * Retrieves a top-level function by its [name] and parameter types [types] from this `KotlinClass`.
+ * Throws a `NoSuchFunctionException` if the function is not found.
+ *
+ * This function performs a search for top-level functions that match the specified name and types
+ * in the current `KotlinClass` or in its `topLevelClass` if applicable. The lookup is limited to
+ * accessible functions and supports both Kotlin and Java functions.
+ *
+ * @param name The name of the top-level function to search for.
+ * @param types The parameter types expected for the function.
+ * @return The matching `KFunction` if found.
+ * @throws NoSuchFunctionException if no matching function is found.
+ */
+fun KotlinClass.topLevelFunction(name: String, vararg types: KClassifier): KFunction<*> =
+  topLevelFunctionOrNull(name, *types) ?: throw NoSuchFunctionException(
+    "fun ${(topLevelClass ?: this).name} $name${types.signature()}' not found in '${this.name}'"
+  )
+
+/**
+ * Attempts to retrieve a top-level function by its [name] and parameter types [types] from this
+ * `KotlinClass`, returning `null` if not found.
+ *
+ * This function checks if the class is a top-level class or if it has a [topLevelClass], then
+ * searches for the specified function within those contexts. It also supports searching within
+ * all top-level application classes if necessary. Only accessible functions are considered.
+ *
+ * @param name The name of the function to search for.
+ * @param types The expected parameter types of the function.
+ * @return The matching `KFunction` if found, or `null` if no such function exists.
+ */
+fun KotlinClass.topLevelFunctionOrNull(name: String, vararg types: KClassifier): KFunction<*>? =
+  tryOrNull {
+    fun JavaClass.findFunction(): KFunction<*>? = tryOrNull {
+      functionPredicates {
+        name(name) and parameters(*types) and setAccessible()
+      }.let { predicate ->
+        declaredMethods.firstNotNullOfOrNull { method ->
+          method.kotlinFunction?.takeIf { func -> predicate.test(func) }
+        }
+      }
+    }
+
+    when (val javaClass: JavaClass? = if (isTopLevelClass()) java else topLevelClass?.java) {
+      null -> allTopLevelApplicationClasses.firstNotNullOfOrNull { kClass ->
+        kClass.java.findFunction()
+      }
+
+      else -> javaClass.findFunction()
+    }
+  }
 
 /**
  * Finds a top-level extension function in this [KClass] that matches the specified receiver type,
@@ -506,14 +922,28 @@ fun KClass<*>.extensionFunction(
  * @param types The parameter types of the extension function.
  * @return The matching top-level [KFunction] or `null` if no match is found.
  */
-fun KClass<*>.topLevelExtensionFunctionOrNull(
-  receiver: KClass<*>,
+fun KotlinClass.topLevelExtensionFunctionOrNull(
+  receiver: KClassifier,
   name: String,
-  vararg types: KClass<*>
-): KFunction<*>? = topLevelFunctions.find { func ->
-  functionPredicates {
-    name(name) and extensionOf(receiver) and parameters(*types)
-  }.test(func)
+  vararg types: KClassifier
+): KFunction<*>? = tryOrNull {
+  fun JavaClass.findExtensionFunction(): KFunction<*>? = tryOrNull {
+    functionPredicates {
+      name(name) and extensionOf(receiver) and parameters(*types) and setAccessible()
+    }.let { predicate ->
+      declaredMethods.firstNotNullOfOrNull { method ->
+        method.kotlinFunction?.takeIf { func -> predicate.test(func) }
+      }
+    }
+  }
+
+  when (val javaClass: JavaClass? = if (isTopLevelClass()) java else topLevelClass?.java) {
+    null -> allTopLevelApplicationClasses.firstNotNullOfOrNull { kClass ->
+      kClass.java.findExtensionFunction()
+    }
+
+    else -> javaClass.findExtensionFunction()
+  }
 }
 
 /**
@@ -527,12 +957,14 @@ fun KClass<*>.topLevelExtensionFunctionOrNull(
  * @throws NoSuchFunctionException if no matching function is found.
  */
 @Throws(NoSuchFunctionException::class)
-fun KClass<*>.topLevelExtensionFunction(
-  receiver: KClass<*>,
+fun KotlinClass.topLevelExtensionFunction(
+  receiver: KClassifier,
   name: String,
-  vararg types: KClass<*>
+  vararg types: KClassifier
 ): KFunction<*> = topLevelExtensionFunctionOrNull(receiver, name, *types)
-  ?: throw NoSuchFunctionException(this, name, receiver, types)
+  ?: throw NoSuchFunctionException(
+    "'fun ${receiver.name}.$name${types.signature()}' not found in '${this.name}'"
+  )
 
 /**
  * Retrieves a property by name.
@@ -544,7 +976,7 @@ fun KClass<*>.topLevelExtensionFunction(
  * @throws NoSuchPropertyException if the property was not found in the class hierarchy
  */
 @Throws(NoSuchPropertyException::class)
-infix fun KClass<*>.property(name: String): KProperty<*> = propertyOrNull(name)
+infix fun KotlinClass.property(name: String): KProperty<*> = propertyOrNull(name)
   ?: throw NoSuchPropertyException("${this.name}.$name")
 
 /**
@@ -554,9 +986,11 @@ infix fun KClass<*>.property(name: String): KProperty<*> = propertyOrNull(name)
  * @param name The property name.
  * @return The property or null if not found.
  */
-fun KClass<*>.propertyOrNull(name: String): KProperty<*>? {
-  return memberProperties.firstOrNull { it.name == name }
-    ?: staticProperties.firstOrNull { it.name == name }
+fun KotlinClass.propertyOrNull(name: String): KProperty<*>? {
+  return (
+    memberProperties.firstOrNull { it.name == name }
+      ?: staticProperties.firstOrNull { it.name == name }
+    )?.apply { accessible = true }
 }
 
 /**
@@ -610,6 +1044,21 @@ var Field.staticValue
  */
 @Suppress("DEPRECATION")
 var AccessibleObject.accessible: Boolean
+  get() = isAccessible
+  set(value) {
+    try {
+      if (isAccessible != value) {
+        isAccessible = value
+      }
+    } catch (_: InaccessibleObjectException) {
+    } catch (_: SecurityException) {
+    }
+  }
+
+/**
+ * Gets or sets the accessibility of a [KCallable].
+ */
+var KCallable<*>.accessible: Boolean
   get() = isAccessible
   set(value) {
     try {
@@ -677,6 +1126,16 @@ fun Field.setFinal(obj: Any?, value: Any?): Boolean = attempt {
  * @param value The value to assign to the field.
  */
 fun Field.assign(obj: Any?, value: Any?) = attempt {
+  try {
+    if (canAccess(obj)) {
+      try {
+        set(obj.takeIf { isNotStatic }, value)
+        return@attempt
+      } catch (_: IllegalAccessException) {
+      }
+    }
+  } catch (_: IllegalArgumentException) {
+  }
   if (isFinal) {
     if (isReflectionBlocked) {
       putObject(obj, value)
@@ -698,11 +1157,13 @@ fun Field.assign(obj: Any?, value: Any?) = attempt {
  */
 operator fun KProperty<*>.set(receiver: Any?, value: Any?) {
   if (this is KMutableProperty<*>) {
-    isAccessible = true
+    accessible = true
     setter.call(receiver, value)
   } else {
     javaField?.let { field ->
-      if (field.isStatic) {
+      if (field.genericType == Lazy::class.java) {
+        field.assign(receiver, lazy { value })
+      } else if (field.isStatic) {
         field.staticValue = value
       } else {
         field.assign(receiver, value)
@@ -736,8 +1197,27 @@ inline fun <reified A : Annotation> JavaClass.annotationOrNull(): A? =
  * Returns a parameter representing the extension receiver instance needed to call this callable,
  * or `null` if this callable is not an extension.
  */
-val KFunction<*>.extensionParameter: KParameter?
+val KCallable<*>.extensionParameter: KParameter?
   get() = parameters.firstOrNull { param -> param.kind == KParameter.Kind.EXTENSION_RECEIVER }
+
+/**
+ * Returns true if the callable is a top-level callable.
+ */
+val KCallable<*>.isTopLevel: Boolean
+  get() = (instanceParameter?.type?.classifier as? KotlinClass)?.isTopLevelClass() ?: true
+
+/**
+ * Retrieves the instance parameter of the callable, if it exists.
+ *
+ * This property returns the parameter of kind `INSTANCE` from the callable's parameter list,
+ * which typically represents the instance on which the callable is invoked
+ * (e.g., `this` in member callables).
+ *
+ * @receiver The callable whose instance parameter is being retrieved.
+ * @return The instance parameter if present, or `null` if the callable is not a member function.
+ */
+val KCallable<*>.instanceParameter: KParameter?
+  get() = parameters.find { param -> param.kind == KParameter.Kind.INSTANCE }
 
 /**
  * Extension property to check whether a [KFunction] is a constructor.
@@ -747,17 +1227,92 @@ val KFunction<*>.extensionParameter: KParameter?
  * @return `true` if the function is a constructor, `false` otherwise.
  */
 val KFunction<*>.isConstructor: Boolean
-  get() = (returnType.classifier as? KClass<*>)?.constructors?.contains(this) ?: false
+  get() = (returnType.classifier as? KotlinClass)?.constructors?.contains(this) ?: false
 
 /**
- * Converts an array of objects (arguments) to an array of corresponding `KClass<*>` types.
+ * Extension property to check whether a [callable][KCallable] (function or property)
+ * is an extension function.
+ *
+ * @return `true` if the callable is an extension member, `false` otherwise.
+ */
+val KCallable<*>.isExtension: Boolean
+  get() = parameters.any { param -> param.kind == KParameter.Kind.EXTENSION_RECEIVER }
+
+/**
+ * Extension property to check whether a [callable][KCallable] (function or property) is a member
+ * of a companion object.
+ *
+ * @return `true` if the callable is declared in a companion object, `false` otherwise.
+ */
+val KCallable<*>.isCompanion: Boolean
+  get() = (instanceParameter?.type?.classifier as? KotlinClass)?.isCompanion == true
+
+/**
+ * Retrieves the declaring Java class for this [KCallable].
+ *
+ * This property returns the Java class in which this callable is declared.
+ * For instance members, it uses the [instanceParameter]'s type classifier.
+ * For top-level functions and properties, it attempts to resolve the Java method or field
+ * backing the callable, if available.
+ *
+ * Note: This may return `null` if the callable is a standalone top-level function or property
+ * without an associated Java declaration, as they do not have a conventional declaring class.
+ *
+ * @return The [Class] object representing the declaring class, or `null` if the callable does
+ *         not have one.
+ */
+val KCallable<*>.declaringClass: Class<*>? get() {
+  // Try to get the instance parameter's classifier if it exists
+  (instanceParameter?.type?.classifier as? KClass<*>)?.let { return it.java }
+
+  // If no instance parameter, attempt to get the Kotlin class directly
+  return (this as? KFunction<*>)?.javaMethod?.declaringClass
+    ?: (this as? KProperty<*>)?.javaField?.declaringClass
+}
+
+/**
+ * Calls this function with the specified list of arguments and returns the result.
+ *
+ * @param args The arguments for the function.
+ * @throws ReflectiveOperationException If the number of specified arguments is not equal to the
+ * size of [KCallable.parameters], or if their types do not match the types of the parameters.
+ */
+@Suppress("TooGenericExceptionCaught")
+@Throws(ReflectiveOperationException::class)
+operator fun KFunction<*>.invoke(vararg args: Any?): Any? = try {
+  call(*args)
+} catch (e: IllegalArgumentException) {
+  when (val obj = companionObjectInstance()) {
+    null -> throw ReflectiveOperationException(e)
+    else -> call(obj, *args) // implicit companion for functions declared in a companion object
+  }
+} catch (e: Exception) {
+  throw ReflectiveOperationException(e)
+}
+
+/**
+ * Calls this property with the specified receiver and returns the result.
+ *
+ * @receiver The property to retrieve.
+ * @param receiver The owner of the property.
+ * @throws ReflectiveOperationException If an error occurs while calling the property.
+ */
+@Suppress("TooGenericExceptionCaught")
+operator fun KProperty<*>.invoke(receiver: Any): Any? = try {
+  call(receiver)
+} catch (e: Exception) {
+  throw ReflectiveOperationException(e)
+}
+
+/**
+ * Converts an array of objects (arguments) to an array of corresponding [KClassifier] types.
  *
  * This extension property is used to map the types of the elements in the array to their
- * corresponding Kotlin class representations (`KClass<*>`). If an element in the array is `null`,
+ * corresponding Kotlin class representations (`KClassifier`). If an element in the array is `null`,
  * it is mapped to `Any::class` to represent the absence of type information.
  *
  * @receiver An array of arguments, which can include `null` values.
- * @return An array of `KClass<*>` objects representing the types of the arguments.
+ * @return An array of `KClassifier` objects representing the types of the arguments.
  *         - If an argument is non-null, the type is determined by `arg::class`.
  *         - If an argument is `null`, it is mapped to `Any::class`.
  *
@@ -768,8 +1323,12 @@ val KFunction<*>.isConstructor: Boolean
  * // types: [String::class, Int::class, Any::class]
  * ```
  */
-val NullableArgs.kotlinParameterTypes: KParameterTypes
-  get() = map { arg -> if (arg != null) arg::class else Any::class }.toTypedArray()
+fun NullableArgs.toKParameterTypes(): KParameterTypes {
+  return when {
+    all { arg -> arg is KClassifier } -> filterIsInstance<KClassifier>().toTypedArray()
+    else -> map { arg -> if (arg != null) arg::class else Any::class }.toTypedArray()
+  }
+}
 
 /**
  * Converts an array of objects (arguments) to an array of corresponding `Class<*>` types.
@@ -783,14 +1342,13 @@ val NullableArgs.kotlinParameterTypes: KParameterTypes
  *         - If an argument is non-null, the type is determined by `arg::class.java`.
  *         - If an argument is `null`, it is mapped to `Any::class.java`.
  */
-val NullableArgs.javaParameterTypes: ParameterTypes
-  get() = map { arg ->
-    if (arg == null) {
-      Any::class.java
-    } else {
-      arg::class.javaPrimitiveType ?: arg::class.java
-    }
-  }.toTypedArray()
+fun NullableArgs.toJavaParameterTypes(): ParameterTypes = map { arg ->
+  when (arg) {
+    null -> Any::class.java
+    is KClass<*> -> arg.java
+    else -> arg::class.javaPrimitiveType ?: arg::class.java
+  }
+}.toTypedArray()
 
 // -------------------------------------------------------------------------------------------------
 
@@ -1077,7 +1635,7 @@ fun Member.modifiersSignature(): String = when (this) {
  * @throws UnsupportedOperationException If the member type is unsupported.
  */
 inline fun <reified T> JavaClass.find(predicate: Predicate<T>): T?
-  where T : AccessibleObject, T : Member = traverseFirstNonNullOrNullOf {
+  where T : AccessibleObject, T : Member = traverser.traverseFirstOrNullOf {
   when (T::class) {
     Method::class -> declaredMethods.find { method -> predicate(method as T) }
     Field::class -> declaredFields.find { field -> predicate(field as T) }
@@ -1118,21 +1676,16 @@ inline fun <reified T> KotlinClass.find(predicate: Predicate<T>): T?
  * @param T The Kotlin callable to find.
  * @param predicate The condition to evaluate on each callable of the class.
  * @return The first matching callable, or `null` if none found.
- * @throws UnsupportedOperationException If the callable type is unsupported.
+ * @throws IllegalStateException If the callable type is unsupported.
  */
 inline fun <reified T : KCallable<*>> KotlinClass.find(predicate: Predicate<T>): T? {
   return when (T::class) {
-    KFunction::class -> functions.find { func -> predicate(func as T) }
-      ?: topLevelClass?.functions?.find { func -> predicate(func as T) }
-      ?: companionObject?.functions?.find { func -> predicate(func as T) }
-      ?: java.methods.mapNotNull { it.kotlinFunction }.find { func -> predicate(func as T) }
-
-    KProperty::class -> memberProperties.find { prop -> predicate(prop as T) }
-      ?: staticProperties.find { prop -> predicate(prop as T) }
-      ?: topLevelClass?.memberProperties?.find { prop -> predicate(prop as T) }
-      ?: topLevelClass?.staticProperties?.find { prop -> predicate(prop as T) }
-
-    else -> throw UnsupportedOperationException("${T::class.java.name} is not supported.")
+    KFunction::class -> functionTraverser
+    KProperty::class -> propertyTraverser
+    KCallable::class -> callableTraverser
+    else -> error("${T::class.name} is not supported.")
+  }.firstOrNull { member ->
+    member is T && predicate(member)
   } as? T
 }
 
@@ -1227,8 +1780,8 @@ fun JavaClass.findMethod(predicate: Predicate<Method>): Method? = find(predicate
  * @return The first matching constructor, or `null` if none found.
  */
 fun KotlinClass.findConstructor(
-  block: ConstructorPredicates.() -> Predicate<Constructor<*>>
-): Constructor<*>? = java.find(constructorPredicates(block))
+  block: KFunctionPredicates.() -> Predicate<KFunction<*>>
+): KConstructor? = find(KFunctionPredicates.isConstructor() and functionPredicates(block))
 
 /**
  * Finds the first constructor in the [KClass] that matches the provided [predicate].
@@ -1237,8 +1790,8 @@ fun KotlinClass.findConstructor(
  * @return The first matching constructor, or `null` if none found.
  */
 fun KotlinClass.findConstructor(
-  predicate: Predicate<Constructor<*>>
-): Constructor<*>? = java.find(predicate)
+  predicate: Predicate<KConstructor>
+): KConstructor? = findConstructor { predicate }
 
 /**
  * Finds the first constructor in the [Class] that matches the provided [ConstructorPredicates]
@@ -1270,6 +1823,16 @@ fun JavaClass.findConstructor(
 fun KotlinClass.findFunction(
   block: KFunctionPredicates.() -> Predicate<KFunction<*>>
 ): KFunction<*>? = find(functionPredicates(block))
+
+/**
+ * Finds the first property in the [KClass] that matches the provided [KPropertyPredicates] block.
+ *
+ * @param block A block of property predicates to test on each property.
+ * @return The first matching property, or `null` if none found.
+ */
+fun KotlinClass.findProperty(
+  block: KPropertyPredicates.() -> Predicate<KProperty<*>>
+): KProperty<*>? = find(propertyPredicates(block))
 
 /**
  * Finds the first function in the [KClass] that matches the provided [predicate].
@@ -1331,8 +1894,8 @@ inline fun <reified T> JavaClass.filter(crossinline predicate: T.() -> Boolean):
  */
 inline fun <reified T : KCallable<*>> KotlinClass.filter(predicate: Predicate<T>): List<T> {
   return when (T::class) {
-    KFunction::class -> functions
-    KProperty::class -> memberProperties
+    KFunction::class -> allFunctions
+    KProperty::class -> allProperties
     else -> throw UnsupportedOperationException("${T::class.java.name} is not supported.")
   }.filterIsInstance<T>().filter { callable -> predicate(callable) }
 }
@@ -1347,8 +1910,8 @@ inline fun <reified T : KCallable<*>> KotlinClass.filter(predicate: Predicate<T>
 inline fun <reified T : KCallable<*>> KotlinClass.filter(
   crossinline predicate: T.() -> Boolean
 ): List<T> = when (T::class) {
-  KFunction::class -> functions
-  KProperty::class -> memberProperties
+  KFunction::class -> allFunctions
+  KProperty::class -> allProperties
   else -> throw UnsupportedOperationException("${T::class.java.name} is not supported.")
 }.filterIsInstance<T>().filter { callable -> predicate(callable) }
 
@@ -1481,6 +2044,21 @@ fun KotlinClass.filterProperties(
 ): List<KProperty<*>> = filter(propertyPredicates(block))
 
 // -------------------------------------------------------------------------------------------------
+
+private fun KFunction<*>.companionObjectInstance(): Any? {
+  val kotlin = instanceParameter?.type?.classifier as? KClass<*> ?: return null
+  return when (kotlin.isCompanion) {
+    true -> kotlin.objectInstance
+    else -> null
+  }
+}
+
+private val allTopLevelApplicationClasses: List<KClass<*>> by lazy {
+  ClassTraverser()
+    .setClassNameFilter { endsWith("Kt") && !startsWith("kotlin.") }
+    .collect { isKotlinCompiled() && kotlin.isTopLevelClass() }
+    .map { jClass -> jClass.kotlin }
+}
 
 private val classNameRegex: Regex by lazy {
   Regex("^(([a-zA-Z_][\\w\$.]*)\\.)?([a-zA-Z_][\\w\$]+)\$")
