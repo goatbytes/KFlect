@@ -17,6 +17,7 @@
 <img src=".art/kflect.webp" alt="KFlect" />
 </div>
 
+KFlect is a Kotlin library that provides dynamic access to class members. It enables you to inspect and manipulate classes at runtime, including private members, companion objects, and extension functions. This can be useful for testing, debugging, and advanced programming techniques.
 
 ## Getting Started
 
@@ -33,10 +34,6 @@ dependencies {
 ## Example Usage
 
 This guide demonstrates how `kflect` provides an efficient approach to interacting with classes dynamically. Using a `Person` class as our example, we’ll walk through instance creation, modifying private members, invoking companion object functions, and even accessing top-level extension functions.
-
----
-
-### **Setting Up the `Person` Class**
 
 Here’s a simple `Person` class with a private constructor, private fields, and a private function. Normally, these members would be inaccessible from the outside, but we can work with them flexibly through `kflect`.
 
@@ -71,7 +68,7 @@ private fun Person.is21() = age >= 21
 
 ---
 
-### **Creating Instances with Ease**
+### **Creating Instances**
 
 With `kflect`, you can create an instance of `Person` even though the constructor is private:
 
@@ -246,17 +243,7 @@ val functionsWithConditions = MyClass::class.filterFunctions {
 
 This query retrieves all `Unit`-returning functions in `String` that are either `public` or annotated with `@Deprecated`.
 
----
-
-#### Benefits of Using Predicates
-
-- **Precision Filtering**: Only retrieve the members you need by applying highly specific criteria.
-- **Reduced Code Overhead**: Avoid repetitive manual member selection in favor of concise, predicate-based syntax.
-- **Improved Readability**: Predicate chaining offers a clean, expressive way to define complex search criteria, making your reflection logic more readable and maintainable.
-
-KFlect’s predicate system is designed to simplify reflection in Kotlin and Java, especially for developers dealing with complex, large-scale classes.
-
-### Lazy Initialization with `LazyKFlect` and `SynchronizedLazyKFlect`
+### Lazy Initialization
 
 KFlect includes `LazyKFlect` and `SynchronizedLazyKFlect` for situations where **on-demand initialization** of reflection data is preferred. These classes are particularly useful for performance-sensitive applications or cases where reflection data might not be required immediately.
 
@@ -267,33 +254,26 @@ KFlect includes `LazyKFlect` and `SynchronizedLazyKFlect` for situations where *
 `LazyKFlect` enables lazy initialization of reflection-related objects, ensuring that they’re only created when accessed for the first time. This approach minimizes the initial memory footprint and computation cost, as resources are allocated only when necessary.
 
 ```kotlin
-val lazyReflection by LazyKFlect { "io.goatbytes.kflect.example.Person"("Alice", 28) as Person }
+val lazyReflection by LazyKFlect { 
+  "io.goatbytes.kflect.example.Person"("Alice", 28) as Person 
+}
 ```
-
-In this example, the `Person` instance is created only when `lazyReflection.value` is accessed, saving resources if it’s never needed during runtime.
 
 ---
 
 #### `SynchronizedLazyKFlect`
 
-For **multithreaded environments**, `SynchronizedLazyKFlect` provides thread-safe lazy initialization by ensuring that only one thread can initialize the reflection data at a time. This is especially useful in concurrent applications where shared access to reflection-based data must be handled carefully to avoid race conditions.
+For **multithreaded environments**, `SynchronizedLazyKFlect` provides thread-safe lazy initialization by ensuring that only one thread can initialize the reflection data at a time.
 
 ```kotlin
-val synchronizedLazyReflection by SynchronizedLazyKFlect { "io.goatbytes.kflect.example.Person"("Bob", 35) as Person }
+val synchronizedLazyReflection by SynchronizedLazyKFlect { 
+  "io.goatbytes.kflect.example.Person"("Bob", 35) as Person 
+}
 ```
 
 ---
 
-### **Summary**
-
-`kflect` provides the tools needed for flexible, dynamic interaction with Kotlin classes, making it an invaluable addition for testing, debugging, and advanced runtime customization:
-
-- **Instance Creation:** Create instances even with restricted visibility.
-- **Private Access:** Read and modify private properties or methods.
-- **Companion and Top-Level Functions:** Full access to companion functions and extensions.
-- **Dynamic Modifications:** Adjust runtime properties for adaptable and responsive code.
-
-This approach brings enhanced flexibility to Kotlin development, especially in environments that benefit from advanced reflection capabilities.
+### Packages
 
 ```
 src
