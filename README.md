@@ -7,7 +7,7 @@
     <img src="https://img.shields.io/badge/Style%20Guide-Kotlin-7F52FF.svg?style=flat&labelColor=black&color=7F52FF&logo=kotlin" alt="Style Guide-Kotlin">
   </a>
   <a href="https://central.sonatype.com/artifact/io.goatbytes/kflect">
-    <img src="https://img.shields.io/badge/-io.goatbytes:kflect:<version>-%230037FF?style=flat-square&logo=gradle" alt="Gradle Dependency" />
+    <img src="https://img.shields.io/badge/-io.goatbytes:kflect:1.0.2-%230037FF?style=flat-square&logo=gradle" alt="Gradle Dependency" />
     <img src="https://img.shields.io/maven-central/v/io.goatbytes/kflect?logo=maven&color=0398fc" alt="Maven Central" />
   </a>
   <img src="https://img.shields.io/badge/Platform-Android%20|%20JVM-dark" alt="Android | JVM" />
