@@ -14,7 +14,7 @@
 ---
 
 <div align="center">
-<img src=".art/kflect.jpg" alt="KFlect" />
+<img src=".art/kflect.webp" alt="KFlect" />
 </div>
 
 
